@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>债券管理系统 - 设计规范</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 40px 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #8B1919 0%, #5C0F0F 100%);
+            padding: 50px 60px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 42px;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .header p {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 60px;
+        }
+
+        .section {
+            margin-bottom: 60px;
+        }
+
+        .section-title {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 30px;
+            color: #1f2937;
+            display: flex;
+            align-items: center;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 28px;
+            background: #8B1919;
+            margin-right: 12px;
+            border-radius: 2px;
+        }
+
+        /* 颜色系统 */
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .color-category {
+            background: #f9fafb;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .color-category h3 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #374151;
+            font-weight: 600;
+        }
+
+        .color-item {
+            margin-bottom: 16px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .color-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .color-swatch {
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 15px;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        .color-info {
+            background: white;
+            padding: 12px 16px;
+            font-size: 14px;
+            color: #6b7280;
+        }
+
+        .color-name {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 4px;
+        }
+
+        /* 设计原则 */
+        .principles-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+        }
+
+        .principle-card {
+            background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+            padding: 28px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            transition: all 0.3s ease;
+        }
+
+        .principle-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+        }
+
+        .principle-card h4 {
+            font-size: 18px;
+            color: #8B1919;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .principle-card p {
+            color: #4b5563;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+
+        /* 组件示例 */
+        .component-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+            gap: 40px;
+        }
+
+        .component-card {
+            background: #f9fafb;
+            padding: 32px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .component-card h3 {
+            font-size: 20px;
+            color: #1f2937;
+            margin-bottom: 16px;
+            font-weight: 600;
+        }
+
+        .component-desc {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+
+        .component-example {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        /* 按钮示例 */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            margin: 8px 8px 8px 0;
+        }
+
+        .btn-primary {
+            background: #3B82F6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563EB;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-success {
+            background: #108981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #0d6d66;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 137, 129, 0.4);
+        }
+
+        .btn-warning {
+            background: #F59E0B;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #D97706;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+        }
+
+        .btn-danger {
+            background: #EF4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #DC2626;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6B7280;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4B5563;
+        }
+
+        /* 输入框示例 */
+        .input-example {
+            margin-bottom: 16px;
+        }
+
+        .input-example label {
+            display: block;
+            margin-bottom: 8px;
+            color: #374151;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #3B82F6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .input-required::after {
+            content: ' *';
+            color: #EF4444;
+        }
+
+        /* 表格示例 */
+        .table-example {
+            overflow-x: auto;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .data-table thead {
+            background: #1e3a8a;
+            color: white;
+        }
+
+        .data-table th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .data-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .data-table tbody tr:nth-child(even) {
+            background: #f0f9ff;
+        }
+
+        .data-table tbody tr:hover {
+            background: #dbeafe;
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            margin: 0 4px;
+            color: #6b7280;
+            transition: color 0.2s;
+        }
+
+        .icon-btn:hover {
+            color: #1f2937;
+        }
+
+        /* 模态框示例 */
+        .modal-example {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+            max-width: 500px;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: #9ca3af;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .modal-body {
+            margin-bottom: 24px;
+            color: #4b5563;
+            font-size: 14px;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        /* 使用场景标签 */
+        .usage-tag {
+            background: #eff6ff;
+            color: #1e40af;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            display: inline-block;
+            margin-top: 8px;
+        }
+
+        .spec-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .spec-list li {
+            padding: 8px 0;
+            color: #4b5563;
+            font-size: 14px;
+            display: flex;
+            align-items: start;
+        }
+
+        .spec-list li::before {
+            content: '▪';
+            color: #8B1919;
+            font-weight: bold;
+            margin-right: 12px;
+            font-size: 18px;
+        }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .content {
+                padding: 30px 20px;
+            }
+
+            .header {
+                padding: 30px 20px;
+            }
+
+            .component-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .color-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>债券管理系统 - 设计规范</h1>
+            <p>ICBC Bond Management System Design Specification</p>
+        </div>
+
+        <div class="content">
+            <!-- 颜色系统 -->
+            <div class="section">
+                <h2 class="section-title">颜色系统 Color System</h2>
+                
+                <div class="color-grid">
+                    <!-- 主色 -->
+                    <div class="color-category">
+                        <h3>主色 Primary</h3>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #8B1919;">#8B1919</div>
+                            <div class="color-info">
+                                <div class="color-name">品牌红 Brand Red</div>
+                                用于页眉、主要品牌标识
+                            </div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #3B82F6;">#3B82F6</div>
+                            <div class="color-info">
+                                <div class="color-name">主蓝 Primary Blue</div>
+                                主要操作按钮、链接
+                            </div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #1e3a8a; color: white;">#1e3a8a</div>
+                            <div class="color-info">
+                                <div class="color-name">深蓝 Dark Blue</div>
+                                表格表头、强调元素
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 功能色 -->
+                    <div class="color-category">
+                        <h3>功能色 Functional</h3>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #108981;">#108981</div>
+                            <div class="color-info">
+                                <div class="color-name">成功 Success</div>
+                                审批通过、确认操作
+                            </div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #EF4444;">#EF4444</div>
+                            <div class="color-info">
+                                <div class="color-name">错误/删除 Error</div>
+                                删除操作、错误提示
+                            </div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #F59E0B;">#F59E0B</div>
+                            <div class="color-info">
+                                <div class="color-name">警告 Warning</div>
+                                上传文件、次要操作
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 中性色 -->
+                    <div class="color-category">
+                        <h3>中性色 Neutral</h3>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #1f2937;">#1f2937</div>
+                            <div class="color-info">
+                                <div class="color-name">标题黑 Heading</div>
+                                主标题、重要文本
+                            </div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #6b7280;">#6b7280</div>
+                            <div class="color-info">
+                                <div class="color-name">正文灰 Body Text</div>
+                                正文内容、次要信息
+                            </div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #e5e7eb; color: #1f2937;">#e5e7eb</div>
+                            <div class="color-info">
+                                <div class="color-name">边框灰 Border</div>
+                                分割线、边框、网格线
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 背景色 -->
+                    <div class="color-category">
+                        <h3>背景色 Background</h3>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #ffffff; color: #1f2937; border: 1px solid #e5e7eb;">#ffffff</div>
+                            <div class="color-info">
+                                <div class="color-name">主背景 Primary BG</div>
+                                页面主背景、卡片
+                            </div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #f9fafb; color: #1f2937;">#f9fafb</div>
+                            <div class="color-info">
+                                <div class="color-name">浅灰背景 Light BG</div>
+                                次要背景、悬浮区域
+                            </div>
+                        </div>
+                        <div class="color-item">
+                            <div class="color-swatch" style="background: #f0f9ff; color: #1f2937;">#f0f9ff</div>
+                            <div class="color-info">
+                                <div class="color-name">表格斑马纹 Table Stripe</div>
+                                表格交替行背景
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 设计原则 -->
+            <div class="section">
+                <h2 class="section-title">设计原则 Design Principles</h2>
+                
+                <div class="principles-grid">
+                    <div class="principle-card">
+                        <h4>🎨 色彩一致性</h4>
+                        <p>使用统一的色彩系统，确保品牌红(#8B1919)作为主要品牌色，蓝色系作为功能色，绿/橙/红作为状态指示色。保持整体视觉一致性。</p>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>📐 排版规范</h4>
+                        <p>页面标题: 28-42px, 粗体<br>
+                        区块标题: 18-20px, 粗体<br>
+                        正文标签: 14px, 中等<br>
+                        表格内容: 13-14px, 常规</p>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>🔘 按钮设计</h4>
+                        <p>主按钮使用蓝色，次要操作使用橙色，成功/审批使用绿色，删除/拒绝使用红色。圆角6px，内边距10px 20px，悬浮时有阴影效果。</p>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>📋 表单规范</h4>
+                        <p>输入框统一使用灰色边框(#d1d5db)，聚焦时显示蓝色边框和阴影。必填字段标记红色星号。字段标签使用中等字重。</p>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>📊 表格设计</h4>
+                        <p>表头使用深蓝色背景(#1e3a8a)配白色文字。数据行交替使用白色和浅蓝色(#f0f9ff)。悬停时显示更深的蓝色背景。</p>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>💬 模态框</h4>
+                        <p>白色背景，圆角8px，顶部标题栏带边框分割，右上角关闭按钮。底部操作按钮右对齐，间距12px。阴影效果增强层级感。</p>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>♿ 可访问性</h4>
+                        <p>确保文字与背景有足够对比度(WCAG AA标准)。重要操作按钮尺寸不小于44×44px。提供清晰的错误提示和验证反馈。</p>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>✨ 动画过渡</h4>
+                        <p>所有交互使用平滑过渡效果，时长200-300ms，缓动函数ease。按钮悬停时轻微上移(-1px)并显示阴影，增强反馈感。</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 组件示例 -->
+            <div class="section">
+                <h2 class="section-title">组件示例 Components</h2>
+                
+                <div class="component-grid">
+                    <!-- 按钮组件 -->
+                    <div class="component-card">
+                        <h3>按钮 Buttons</h3>
+                        <p class="component-desc">用于触发操作的交互元素，根据功能使用不同颜色</p>
+                        <div class="component-example">
+                            <button class="btn btn-primary">✚ 单笔新增</button>
+                            <button class="btn btn-warning">📁 文件上传</button>
+                            <button class="btn btn-success">✓ 全部审批</button>
+                            <button class="btn btn-primary">🔍 搜索</button>
+                            <button class="btn btn-danger">✕ 删除</button>
+                            <button class="btn btn-secondary">关闭</button>
+                        </div>
+                        <span class="usage-tag">适用场景：所有操作触发</span>
+                    </div>
+
+                    <!-- 输入框组件 -->
+                    <div class="component-card">
+                        <h3>输入框 Input Fields</h3>
+                        <p class="component-desc">用于数据输入的表单元素，支持必填标记</p>
+                        <div class="component-example">
+                            <div class="input-example">
+                                <label class="input-required">债券代码</label>
+                                <input type="text" class="input-field" placeholder="请输入债券代码">
+                            </div>
+                            <div class="input-example">
+                                <label>债券名称</label>
+                                <input type="text" class="input-field" placeholder="请输入债券名称">
+                            </div>
+                        </div>
+                        <span class="usage-tag">适用场景：表单数据录入</span>
+                    </div>
+
+                    <!-- 表格组件 -->
+                    <div class="component-card" style="grid-column: 1 / -1;">
+                        <h3>数据表格 Data Table</h3>
+                        <p class="component-desc">展示结构化数据，支持行内操作和斑马纹</p>
+                        <div class="component-example">
+                            <div class="table-example">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>操作</th>
+                                            <th>债券代码</th>
+                                            <th>债券名称</th>
+                                            <th>币种</th>
+                                            <th>发行人</th>
+                                            <th>状态</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>
+                                                <button class="icon-btn" title="编辑">✏️</button>
+                                                <button class="icon-btn" title="删除">🗑️</button>
+                                            </td>
+                                            <td>US91282CKQ34</td>
+                                            <td>T 4 3/4 11/15/43 Govt</td>
+                                            <td>USD</td>
+                                            <td>US TREASURY N/B</td>
+                                            <td style="color: #108981; font-weight: 600;">生效中</td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                                <button class="icon-btn" title="编辑">✏️</button>
+                                                <button class="icon-btn" title="删除">🗑️</button>
+                                            </td>
+                                            <td>XS3103596378</td>
+                                            <td>ICBCAS 2 06/23/26 Corp</td>
+                                            <td>HKD</td>
+                                            <td>IND & COMM BK CHN/DOHA</td>
+                                            <td style="color: #108981; font-weight: 600;">生效中</td>
+                                        </tr>
+                                        <tr>
+                                            <td>
+                                                <button class="icon-btn" title="编辑">✏️</button>
+                                                <button class="icon-btn" title="删除">🗑️</button>
+                                            </td>
+                                            <td>XS3062432016</td>
+                                            <td>SWIRE 5 1/8 07/05/29 Corp</td>
+                                            <td>USD</td>
+                                            <td>SWIRE PACIFIC MTN FIN</td>
+                                            <td style="color: #108981; font-weight: 600;">生效中</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <span class="usage-tag">适用场景：列表展示、数据管理</span>
+                    </div>
+
+                    <!-- 模态框组件 -->
+                    <div class="component-card">
+                        <h3>模态框 Modal Dialog</h3>
+                        <p class="component-desc">用于确认操作或展示详细信息的浮层</p>
+                        <div class="component-example">
+                            <div class="modal-example">
+                                <div class="modal-header">
+                                    <div class="modal-title">全部审批</div>
+                                    <button class="modal-close">×</button>
+                                </div>
+                                <div class="modal-body">
+                                    <strong>备注：</strong>请注意，全部审批将审批所有数据，并非当前页面。
+                                </div>
+                                <div class="modal-footer">
+                                    <button class="btn btn-success">✓ 通过</button>
+                                    <button class="btn btn-danger">✕ 拒绝</button>
+                                </div>
+                            </div>
+                        </div>
+                        <span class="usage-tag">适用场景：确认操作、详情展示</span>
+                    </div>
+
+                    <!-- 状态标识 -->
+                    <div class="component-card">
+                        <h3>状态标识 Status Indicators</h3>
+                        <p class="component-desc">用于表示不同状态的视觉元素</p>
+                        <div class="component-example">
+                            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                                <span style="padding: 6px 12px; background: #dcfce7; color: #166534; border-radius: 4px; font-size: 13px; font-weight: 500;">✓ 生效中</span>
+                                <span style="padding: 6px 12px; background: #fee2e2; color: #991b1b; border-radius: 4px; font-size: 13px; font-weight: 500;">✕ 已删除</span>
+                                <span style="padding: 6px 12px; background: #fef3c7; color: #92400e; border-radius: 4px; font-size: 13px; font-weight: 500;">⏳ 待审批</span>
+                                <span style="padding: 6px 12px; background: #dbeafe; color: #1e3a8a; border-radius: 4px; font-size: 13px; font-weight: 500;">📝 草稿</span>
+                            </div>
+                        </div>
+                        <span class="usage-tag">适用场景：状态展示、标签分类</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 布局规范 -->
+            <div class="section">
+                <h2 class="section-title">布局规范 Layout Guidelines</h2>
+                
+                <div class="principles-grid">
+                    <div class="principle-card">
+                        <h4>页面结构</h4>
+                        <ul class="spec-list">
+                            <li>顶部导航栏高度：60-80px</li>
+                            <li>内容区域内边距：40-60px</li>
+                            <li>卡片间距：20-30px</li>
+                            <li>表单字段间距：16-20px</li>
+                        </ul>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>响应式设计</h4>
+                        <ul class="spec-list">
+                            <li>桌面端：≥1200px，多列布局</li>
+                            <li>平板端：768-1199px，两列布局</li>
+                            <li>移动端：<768px，单列布局</li>
+                            <li>关键操作按钮保持可见</li>
+                        </ul>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>网格系统</h4>
+                        <ul class="spec-list">
+                            <li>基础栅格：12列</li>
+                            <li>列间距：24px</li>
+                            <li>容器最大宽度：1400px</li>
+                            <li>边距与内边距比例：1:2</li>
+                        </ul>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>圆角与阴影</h4>
+                        <ul class="spec-list">
+                            <li>按钮/输入框：6px</li>
+                            <li>卡片/容器：8-12px</li>
+                            <li>模态框：8px</li>
+                            <li>阴影：0 2px 8px rgba(0,0,0,0.08)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 交互规范 -->
+            <div class="section">
+                <h2 class="section-title">交互规范 Interaction Guidelines</h2>
+                
+                <div class="principles-grid">
+                    <div class="principle-card">
+                        <h4>按钮交互</h4>
+                        <ul class="spec-list">
+                            <li>悬停：向上移动1px + 阴影</li>
+                            <li>点击：轻微缩放效果</li>
+                            <li>禁用：透明度50% + 禁止光标</li>
+                            <li>加载：显示加载动画</li>
+                        </ul>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>表单验证</h4>
+                        <ul class="spec-list">
+                            <li>实时验证：失焦时触发</li>
+                            <li>错误提示：红色边框 + 错误文本</li>
+                            <li>成功状态：绿色边框 + 勾选图标</li>
+                            <li>字符计数：实时显示剩余字符</li>
+                        </ul>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>表格交互</h4>
+                        <ul class="spec-list">
+                            <li>行悬停：背景色加深</li>
+                            <li>行选中：蓝色高亮背景</li>
+                            <li>排序：点击表头切换升降序</li>
+                            <li>分页：每页10/20/50条可选</li>
+                        </ul>
+                    </div>
+
+                    <div class="principle-card">
+                        <h4>加载与反馈</h4>
+                        <ul class="spec-list">
+                            <li>页面加载：骨架屏占位</li>
+                            <li>操作成功：绿色Toast提示2秒</li>
+                            <li>操作失败：红色Toast提示3秒</li>
+                            <li>危险操作：二次确认弹窗</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图标规范 -->
+            <div class="section">
+                <h2 class="section-title">图标规范 Icon Guidelines</h2>
+                
+                <div class="component-card">
+                    <p class="component-desc">使用统一的图标风格，保持视觉一致性</p>
+                    <div class="component-example">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 20px; text-align: center;">
+                            <div>
+                                <div style="font-size: 32px; margin-bottom: 8px;">✚</div>
+                                <div style="font-size: 12px; color: #6b7280;">新增</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 32px; margin-bottom: 8px;">✏️</div>
+                                <div style="font-size: 12px; color: #6b7280;">编辑</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 32px; margin-bottom: 8px;">🗑️</div>
+                                <div style="font-size: 12px; color: #6b7280;">删除</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 32px; margin-bottom: 8px;">🔍</div>
+                                <div style="font-size: 12px; color: #6b7280;">搜索</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 32px; margin-bottom: 8px;">📁</div>
+                                <div style="font-size: 12px; color: #6b7280;">上传</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 32px; margin-bottom: 8px;">⬇️</div>
+                                <div style="font-size: 12px; color: #6b7280;">下载</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 32px; margin-bottom: 8px;">✓</div>
+                                <div style="font-size: 12px; color: #6b7280;">通过</div>
+                            </div>
+                            <div>
+                                <div style="font-size: 32px; margin-bottom: 8px;">✕</div>
+                                <div style="font-size: 12px; color: #6b7280;">拒绝</div>
+                            </div>
+                        </div>
+                    </div>
+                    <ul class="spec-list" style="margin-top: 20px;">
+                        <li>图标尺寸：16px (小)、20px (中)、24px (大)</li>
+                        <li>按钮内图标：与文字间距8px</li>
+                        <li>操作图标：可点击区域不小于44×44px</li>
+                        <li>颜色：继承父元素或使用功能色</li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</body>
+</html>

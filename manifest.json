@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "智能助手",
+  "version": "1.0.0",
+  "description": "智能助手 - 捕获网页内容，与 AI 对话获取洞察",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/index.ts"]
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "打开 智能助手"
+  },
+  "commands": {
+    "open-edage": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      },
+      "description": "打开 智能助手"
+    }
+  }
+}

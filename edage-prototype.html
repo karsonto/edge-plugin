@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>edage - 智能网页助手 | 高保真原型</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --bg-main: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-hover: #f1f5f9;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --shadow: rgba(0, 0, 0, 0.1);
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #e5e7eb;
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .prototype-container {
+            display: flex;
+            gap: 20px;
+            max-width: 1400px;
+            width: 100%;
+            height: 100%;
+            max-height: 900px;
+        }
+
+        /* 模拟网页内容 */
+        .mock-webpage {
+            flex: 1;
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            overflow-y: auto;
+            box-shadow: 0 4px 6px var(--shadow);
+        }
+
+        .mock-webpage h1 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+        }
+
+        .mock-webpage p {
+            line-height: 1.8;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .mock-webpage .highlight {
+            background: #fef3c7;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        /* 侧边栏主容器 */
+        .edage-panel {
+            width: 420px;
+            background: var(--bg-main);
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 顶部标题栏 */
+        .panel-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+
+        .panel-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .panel-logo-icon {
+            width: 32px;
+            height: 32px;
+            background: white;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .panel-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+
+        /* 标签页 */
+        .panel-tabs {
+            display: flex;
+            padding: 12px 20px;
+            gap: 8px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 8px 16px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            background: var(--bg-hover);
+        }
+
+        .tab.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 2px 4px var(--shadow);
+        }
+
+        /* 上下文预览区 */
+        .context-preview {
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .context-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .context-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .context-toggle {
+            font-size: 12px;
+            color: var(--primary);
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-weight: 500;
+        }
+
+        .context-content {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            max-height: 60px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+
+        .context-meta {
+            display: flex;
+            gap: 12px;
+            margin-top: 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .context-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* 快捷操作 */
+        .quick-actions {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .quick-actions-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .quick-actions-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .edit-actions-btn {
+            font-size: 12px;
+            color: var(--primary);
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .action-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .action-btn {
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            text-align: left;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .action-btn:hover {
+            border-color: var(--primary);
+            background: var(--bg-secondary);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px var(--shadow);
+        }
+
+        /* 聊天区域 */
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 16px;
+        }
+
+        .user-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .ai-avatar {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+
+        .message-content {
+            flex: 1;
+        }
+
+        .message-text {
+            background: var(--bg-secondary);
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .message.user .message-text {
+            background: var(--primary);
+            color: white;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            padding-left: 4px;
+        }
+
+        /* 空状态 */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 40px;
+        }
+
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .empty-desc {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* 输入区域 */
+        .input-container {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+            background: white;
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .input-field {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            max-height: 120px;
+            transition: all 0.2s;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .send-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: var(--primary);
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-size: 18px;
+        }
+
+        .send-btn:hover {
+            background: var(--primary-dark);
+            transform: scale(1.05);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 设置面板 */
+        .settings-panel {
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .setting-group {
+            margin-bottom: 24px;
+        }
+
+        .setting-group-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .setting-item {
+            margin-bottom: 16px;
+        }
+
+        .setting-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            display: block;
+        }
+
+        .setting-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .setting-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .setting-select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+        }
+
+        /* 快捷操作配置 */
+        .quick-action-config {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: var(--bg-secondary);
+        }
+
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .config-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .config-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .small-btn {
+            padding: 4px 8px;
+            border: 1px solid var(--border);
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .small-btn:hover {
+            background: var(--bg-hover);
+        }
+
+        .small-btn.delete {
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .small-btn.delete:hover {
+            background: var(--danger);
+            color: white;
+        }
+
+        .config-field {
+            margin-bottom: 8px;
+        }
+
+        .config-field label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .config-field input,
+        .config-field textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: inherit;
+        }
+
+        .config-field textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+
+        .add-action-btn {
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed var(--border);
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--primary);
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .add-action-btn:hover {
+            border-color: var(--primary);
+            background: var(--bg-secondary);
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        /* 响应式 */
+        @media (max-width: 1024px) {
+            .mock-webpage {
+                display: none;
+            }
+            
+            .edage-panel {
+                width: 100%;
+                max-width: 500px;
+            }
+        }
+
+        /* 加载动画 */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            width: fit-content;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                opacity: 0.3;
+                transform: scale(0.8);
+            }
+            30% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            background: var(--primary);
+            color: white;
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+
+        code {
+            background: var(--bg-secondary);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="prototype-container">
+        <!-- 模拟网页内容 -->
+        <div class="mock-webpage">
+            <h1>人工智能的未来发展趋势</h1>
+            <p>
+                人工智能（AI）技术正在以前所未有的速度发展。从<span class="highlight">自然语言处理</span>到<span class="highlight">计算机视觉</span>，
+                AI 正在改变我们的生活方式和工作方式。专家预测，未来十年将是 AI 技术突破的关键时期。
+            </p>
+            <p>
+                深度学习技术的进步使得机器能够理解和生成人类语言，这为人机交互开辟了新的可能性。
+                大型语言模型如 GPT、Claude 等的出现，展示了 AI 在理解上下文和生成连贯文本方面的强大能力。
+            </p>
+            <p>
+                然而，AI 的发展也带来了一些挑战，包括数据隐私、算法偏见、以及技术伦理等问题。
+                如何在推动技术创新的同时，确保 AI 的安全性和可控性，是当前研究的重要方向。
+            </p>
+            <p>
+                在应用层面，AI 已经广泛应用于医疗诊断、金融分析、自动驾驶、教育辅助等多个领域。
+                这些应用不仅提高了效率，也为解决复杂问题提供了新的思路。
+            </p>
+        </div>
+
+        <!-- edage 插件侧边栏 -->
+        <div class="edage-panel">
+            <!-- 头部 -->
+            <div class="panel-header">
+                <div class="panel-logo">
+                    <div class="panel-logo-icon">🚀</div>
+                    <span>edage</span>
+                </div>
+                <div class="panel-actions">
+                    <button class="icon-btn" title="清空对话" onclick="clearChat()">🗑️</button>
+                    <button class="icon-btn" title="设置" onclick="switchTab('settings')">⚙️</button>
+                </div>
+            </div>
+
+            <!-- 标签页 -->
+            <div class="panel-tabs">
+                <button class="tab active" onclick="switchTab('chat')" id="tab-chat">💬 对话</button>
+                <button class="tab" onclick="switchTab('settings')" id="tab-settings">⚙️ 设置</button>
+            </div>
+
+            <!-- 对话视图 -->
+            <div id="view-chat" class="view-content">
+                <!-- 上下文预览 -->
+                <div class="context-preview">
+                    <div class="context-header">
+                        <span class="context-title">📄 当前页面</span>
+                        <button class="context-toggle">展开</button>
+                    </div>
+                    <div class="context-content">
+                        人工智能的未来发展趋势 - 人工智能（AI）技术正在以前所未有的速度发展。从自然语言处理到计算机视觉...
+                    </div>
+                    <div class="context-meta">
+                        <span>📊 约 520 字</span>
+                        <span>⏱️ 阅读时间 2 分钟</span>
+                    </div>
+                </div>
+
+                <!-- 快捷操作 -->
+                <div class="quick-actions">
+                    <div class="quick-actions-header">
+                        <span class="quick-actions-title">⚡ 快捷操作</span>
+                        <button class="edit-actions-btn" onclick="switchTab('settings'); scrollToQuickActions()">编辑</button>
+                    </div>
+                    <div class="action-grid" id="actionGrid">
+                        <!-- 快捷操作按钮将由 JavaScript 动态生成 -->
+                    </div>
+                </div>
+
+                <!-- 聊天消息 -->
+                <div class="chat-container" id="chatContainer">
+                    <div class="empty-state">
+                        <div class="empty-icon">💬</div>
+                        <div class="empty-title">开始对话</div>
+                        <div class="empty-desc">
+                            使用快捷操作或输入您的问题<br>
+                            我会基于当前页面内容为您解答
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 输入区域 -->
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea 
+                            class="input-field" 
+                            placeholder="输入您的问题..." 
+                            rows="1"
+                            id="userInput"
+                            onkeydown="handleKeyPress(event)"
+                        ></textarea>
+                        <button class="send-btn" onclick="sendMessage()" id="sendBtn">
+                            ▲
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 设置视图 -->
+            <div id="view-settings" class="view-content" style="display: none;">
+                <div class="settings-panel">
+                    <!-- 快捷操作配置 -->
+                    <div class="setting-group" id="quickActionsSettings">
+                        <div class="setting-group-title">⚡ 快捷操作配置</div>
+                        <p class="help-text" style="margin-bottom: 16px;">
+                            自定义快捷操作，配置提示词模板。点击快捷按钮时，会将提示词和页面内容发送给 AI。
+                            使用 <code>{context}</code> 作为页面内容的占位符。
+                        </p>
+                        <div id="quickActionsConfig">
+                            <!-- 配置项将由 JavaScript 动态生成 -->
+                        </div>
+                        <button class="add-action-btn" onclick="addQuickAction()">
+                            ➕ 添加新的快捷操作
+                        </button>
+                    </div>
+
+                    <div class="setting-group">
+                        <div class="setting-group-title">🤖 AI 配置</div>
+                        <div class="setting-item">
+                            <label class="setting-label">AI 提供商</label>
+                            <select class="setting-select" id="aiProvider">
+                                <option>OpenAI</option>
+                                <option>Anthropic (Claude)</option>
+                                <option>Google (Gemini)</option>
+                                <option>自定义</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">API Key</label>
+                            <input type="password" class="setting-input" placeholder="sk-..." id="apiKey">
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">模型选择</label>
+                            <select class="setting-select" id="model">
+                                <option>gpt-4-turbo</option>
+                                <option>gpt-3.5-turbo</option>
+                                <option>claude-3-opus</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <div class="setting-group-title">🎨 界面设置</div>
+                        <div class="setting-item">
+                            <label class="setting-label">主题</label>
+                            <select class="setting-select" id="theme">
+                                <option>浅色</option>
+                                <option>深色</option>
+                                <option>跟随系统</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">字体大小</label>
+                            <select class="setting-select" id="fontSize">
+                                <option>小</option>
+                                <option selected>中</option>
+                                <option>大</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <div class="setting-group-title">⚙️ 行为设置</div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" checked id="autoCapture"> 自动捕获页面内容
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" checked id="showFloating"> 显示悬浮按钮
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <div class="setting-group-title">🔒 隐私设置</div>
+                        <div class="setting-item">
+                            <label class="setting-label">排除域名（不捕获内容）</label>
+                            <textarea class="setting-input" rows="3" placeholder="example.com&#10;bank.com" id="excludeDomains"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 默认快捷操作配置
+        let quickActions = [
+            {
+                id: 'summarize',
+                emoji: '📝',
+                name: '总结文章',
+                prompt: '请用 3-5 个要点总结以下内容的核心观点：\n\n{context}'
+            },
+            {
+                id: 'translate',
+                emoji: '🌐',
+                name: '翻译成英文',
+                prompt: '请将以下内容翻译成英文：\n\n{context}'
+            },
+            {
+                id: 'explain',
+                emoji: '💡',
+                name: '解释概念',
+                prompt: '请解释以下内容中的专业术语和关键概念：\n\n{context}'
+            },
+            {
+                id: 'qa',
+                emoji: '❓',
+                name: '提取要点',
+                prompt: '请从以下内容中提取关键问题和要点：\n\n{context}'
+            }
+        ];
+
+        // 页面内容（模拟）
+        const pageContext = `人工智能的未来发展趋势
+
+人工智能（AI）技术正在以前所未有的速度发展。从自然语言处理到计算机视觉，AI 正在改变我们的生活方式和工作方式。专家预测，未来十年将是 AI 技术突破的关键时期。
+
+深度学习技术的进步使得机器能够理解和生成人类语言，这为人机交互开辟了新的可能性。大型语言模型如 GPT、Claude 等的出现，展示了 AI 在理解上下文和生成连贯文本方面的强大能力。
+
+然而，AI 的发展也带来了一些挑战，包括数据隐私、算法偏见、以及技术伦理等问题。如何在推动技术创新的同时，确保 AI 的安全性和可控性，是当前研究的重要方向。`;
+
+        // 初始化
+        function init() {
+            loadSettings();
+            renderQuickActions();
+            renderQuickActionsConfig();
+        }
+
+        // 标签切换
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.getElementById('tab-' + tabName).classList.add('active');
+
+            document.querySelectorAll('.view-content').forEach(view => {
+                view.style.display = 'none';
+            });
+            document.getElementById('view-' + tabName).style.display = tabName === 'chat' ? 'flex' : 'block';
+        }
+
+        // 渲染快捷操作按钮
+        function renderQuickActions() {
+            const grid = document.getElementById('actionGrid');
+            grid.innerHTML = '';
+            
+            quickActions.forEach(action => {
+                const btn = document.createElement('button');
+                btn.className = 'action-btn';
+                btn.innerHTML = `${action.emoji} ${action.name}`;
+                btn.onclick = () => executeQuickAction(action);
+                grid.appendChild(btn);
+            });
+        }
+
+        // 渲染快捷操作配置
+        function renderQuickActionsConfig() {
+            const container = document.getElementById('quickActionsConfig');
+            container.innerHTML = '';
+            
+            quickActions.forEach((action, index) => {
+                const div = document.createElement('div');
+                div.className = 'quick-action-config';
+                div.innerHTML = `
+                    <div class="config-header">
+                        <span class="config-name">${action.emoji} ${action.name}</span>
+                        <div class="config-actions">
+                            <button class="small-btn delete" onclick="deleteQuickAction(${index})">删除</button>
+                        </div>
+                    </div>
+                    <div class="config-field">
+                        <label>图标（Emoji）</label>
+                        <input type="text" value="${action.emoji}" onchange="updateQuickAction(${index}, 'emoji', this.value)" maxlength="2">
+                    </div>
+                    <div class="config-field">
+                        <label>名称</label>
+                        <input type="text" value="${action.name}" onchange="updateQuickAction(${index}, 'name', this.value)">
+                    </div>
+                    <div class="config-field">
+                        <label>提示词模板（使用 {context} 作为页面内容占位符）</label>
+                        <textarea onchange="updateQuickAction(${index}, 'prompt', this.value)">${action.prompt}</textarea>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // 执行快捷操作
+        function executeQuickAction(action) {
+            const prompt = action.prompt.replace('{context}', pageContext);
+            document.getElementById('userInput').value = prompt;
+            sendMessage();
+        }
+
+        // 添加快捷操作
+        function addQuickAction() {
+            quickActions.push({
+                id: 'custom_' + Date.now(),
+                emoji: '✨',
+                name: '新操作',
+                prompt: '请对以下内容进行分析：\n\n{context}'
+            });
+            saveSettings();
+            renderQuickActions();
+            renderQuickActionsConfig();
+        }
+
+        // 更新快捷操作
+        function updateQuickAction(index, field, value) {
+            quickActions[index][field] = value;
+            saveSettings();
+            renderQuickActions();
+            renderQuickActionsConfig();
+        }
+
+        // 删除快捷操作
+        function deleteQuickAction(index) {
+            if (confirm('确定要删除这个快捷操作吗？')) {
+                quickActions.splice(index, 1);
+                saveSettings();
+                renderQuickActions();
+                renderQuickActionsConfig();
+            }
+        }
+
+        // 滚动到快捷操作设置
+        function scrollToQuickActions() {
+            setTimeout(() => {
+                document.getElementById('quickActionsSettings').scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+        }
+
+        // 发送消息
+        function sendMessage() {
+            const input = document.getElementById('userInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+
+            const chatContainer = document.getElementById('chatContainer');
+            
+            const emptyState = chatContainer.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            addMessage('user', message);
+            input.value = '';
+            input.style.height = 'auto';
+            
+            addTypingIndicator();
+
+            setTimeout(() => {
+                removeTypingIndicator();
+                
+                let response = '';
+                if (message.includes('总结')) {
+                    response = `根据页面内容，我为您总结以下要点：\n\n1. **技术发展**: AI 技术正在快速发展，深度学习和大型语言模型是关键突破\n\n2. **应用领域**: AI 已应用于医疗、金融、自动驾驶、教育等多个领域\n\n3. **面临挑战**: 数据隐私、算法偏见、技术伦理是当前需要关注的问题\n\n4. **未来展望**: 未来十年将是 AI 技术突破的关键时期，需要平衡创新与安全`;
+                } else if (message.includes('翻译')) {
+                    response = `**The Future Development Trends of Artificial Intelligence**\n\nArtificial Intelligence (AI) technology is developing at an unprecedented pace. From natural language processing to computer vision, AI is changing the way we live and work. Experts predict that the next decade will be a critical period for breakthroughs in AI technology...`;
+                } else if (message.includes('解释')) {
+                    response = `让我为您解释页面中的关键概念：\n\n**自然语言处理 (NLP)**\n自然语言处理是人工智能的一个分支，专注于让计算机理解、解释和生成人类语言。它使机器能够读懂文本、理解语义。\n\n**计算机视觉 (CV)**\n计算机视觉是让计算机能够"看懂"图像和视频的技术。通过分析视觉数据，机器可以识别物体、理解场景。\n\n**深度学习**\n深度学习是机器学习的一个子领域，使用多层神经网络来学习数据的复杂模式。`;
+                } else if (message.includes('要点')) {
+                    response = `从页面中提取的关键要点：\n\n• AI 技术发展速度空前\n• 自然语言处理和计算机视觉是核心领域\n• 大型语言模型展现强大能力\n• 面临数据隐私和伦理挑战\n• 广泛应用于各个行业领域\n• 未来十年是关键突破期`;
+                } else {
+                    response = `我已经收到您的问题。这是一篇关于 AI 发展的深度分析文章，涵盖了技术进步、应用场景和面临的挑战。您想了解哪方面的详细信息？`;
+                }
+                
+                addMessage('ai', response);
+            }, 1500);
+        }
+
+        // 清空对话
+        function clearChat() {
+            if (confirm('确定要清空当前对话吗？')) {
+                const chatContainer = document.getElementById('chatContainer');
+                chatContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">💬</div>
+                        <div class="empty-title">开始对话</div>
+                        <div class="empty-desc">
+                            使用快捷操作或输入您的问题<br>
+                            我会基于当前页面内容为您解答
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // 添加消息
+        function addMessage(type, text) {
+            const chatContainer = document.getElementById('chatContainer');
+            const now = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.innerHTML = `
+                <div class="message-avatar ${type}-avatar">
+                    ${type === 'user' ? '👤' : '🤖'}
+                </div>
+                <div class="message-content">
+                    <div class="message-text">${text.replace(/\n/g, '<br>')}</div>
+                    <div class="message-time">${now}</div>
+                </div>
+            `;
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // 添加输入中指示器
+        function addTypingIndicator() {
+            const chatContainer = document.getElementById('chatContainer');
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'message ai';
+            typingDiv.id = 'typing-indicator';
+            typingDiv.innerHTML = `
+                <div class="message-avatar ai-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="typing-indicator">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            `;
+            chatContainer.appendChild(typingDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // 移除输入中指示器
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        // 处理键盘事件
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        // 自动调整输入框高度
+        document.addEventListener('DOMContentLoaded', function() {
+            const input = document.getElementById('userInput');
+            input.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            });
+            
+            init();
+        });
+
+        // 保存设置到 localStorage
+        function saveSettings() {
+            localStorage.setItem('edage_quick_actions', JSON.stringify(quickActions));
+        }
+
+        // 从 localStorage 加载设置
+        function loadSettings() {
+            const saved = localStorage.getItem('edage_quick_actions');
+            if (saved) {
+                quickActions = JSON.parse(saved);
+            }
+        }
+    </script>
+</body>
+</html>
