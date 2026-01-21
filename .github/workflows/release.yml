@@ -1,0 +1,45 @@
+name: Release (build dist)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build (with release-time params)
+        env:
+          # 方式 A：在 workflow 里固定写死发布包参数（可按需修改）
+          VITE_APP_NAME: "智能助手"
+          VITE_APP_DESC: "智能助手 - 捕获网页内容，与 AI 对话获取洞察"
+          VITE_DEFAULT_CUSTOM_ENDPOINT: "http://localhost:8080/v1/chat/completions"
+        run: npm run build
+
+      - name: Pack dist
+        run: |
+          cd dist
+          zip -r "../edge-plugin-${{ github.ref_name }}-dist.zip" .
+          cd ..
+
+      - name: Create GitHub Release and upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: edge-plugin-${{ github.ref_name }}-dist.zip
+
