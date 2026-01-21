@@ -7,11 +7,14 @@ import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useChat, useSettings, usePageContext } from './hooks';
 import { replacePlaceholders } from '@/shared/utils/text-processor';
 import { APP_NAME } from '@/shared/brand';
-import { Rocket, RefreshCw, Trash2 } from 'lucide-react';
+import { Rocket, RefreshCw, Trash2, Maximize2 } from 'lucide-react';
+import { BottomSheet } from './components/shared/BottomSheet';
+import { MessageBubble } from './components/Chat/MessageBubble';
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabType>('chat');
   const [inputValue, setInputValue] = useState('');
+  const [chatZoomOpen, setChatZoomOpen] = useState(false);
   // 默认开启：发送提问时附带当前网页抓取内容
   const [includePageContext, setIncludePageContext] = useState(true);
   // Function Calling 开关
@@ -38,6 +41,11 @@ function App() {
     loadSettings();
     fetchPageContext();
   }, []);
+
+  // 离开对话 Tab 时自动关闭放大 Sheet
+  useEffect(() => {
+    if (activeTab !== 'chat') setChatZoomOpen(false);
+  }, [activeTab]);
 
   // 同步 Function Calling 开关状态
   useEffect(() => {
@@ -142,6 +150,14 @@ function App() {
         </div>
         <div className="flex gap-2">
           <button
+            onClick={() => setChatZoomOpen(true)}
+            className="w-8 h-8 flex items-center justify-center rounded-md bg-white/20 hover:bg-white/30 transition-colors"
+            title="放大对话"
+            disabled={activeTab !== 'chat' || messages.length === 0}
+          >
+            <Maximize2 size={16} />
+          </button>
+          <button
             onClick={handleRefresh}
             className="w-8 h-8 flex items-center justify-center rounded-md bg-white/20 hover:bg-white/30 transition-colors"
             title="刷新页面内容"
@@ -159,6 +175,20 @@ function App() {
           </button>
         </div>
       </header>
+
+      <BottomSheet open={chatZoomOpen} title="对话放大" onClose={() => setChatZoomOpen(false)}>
+        <div className="space-y-4 text-[15px] leading-7">
+          {messages.map((m) => (
+            <MessageBubble
+              key={m.id}
+              role={m.role}
+              content={m.content}
+              timestamp={m.timestamp}
+              isStreaming={m.isStreaming}
+            />
+          ))}
+        </div>
+      </BottomSheet>
 
       {/* Tab Bar */}
       <TabBar activeTab={activeTab} onTabChange={setActiveTab} />

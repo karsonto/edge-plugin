@@ -6,6 +6,9 @@
 
 let overlayEl: HTMLDivElement | null = null;
 let overlayLabelEl: HTMLDivElement | null = null;
+let clearTimer: number | null = null;
+
+const HIGHLIGHT_TTL_MS = 1000;
 
 function ensureOverlay() {
   if (overlayEl && overlayLabelEl) return;
@@ -38,6 +41,10 @@ function ensureOverlay() {
 }
 
 export function clearHighlight() {
+  if (clearTimer != null) {
+    window.clearTimeout(clearTimer);
+    clearTimer = null;
+  }
   overlayEl?.remove();
   overlayLabelEl?.remove();
   overlayEl = null;
@@ -66,6 +73,10 @@ export function showHighlight(target: Element, label: string) {
   const labelTop = Math.max(0, top - 28);
   overlayLabelEl.style.top = `${labelTop}px`;
   overlayLabelEl.style.left = `${left}px`;
+
+  // Auto-hide after TTL (reset on every highlight call)
+  if (clearTimer != null) window.clearTimeout(clearTimer);
+  clearTimer = window.setTimeout(() => clearHighlight(), HIGHLIGHT_TTL_MS);
 }
 
 

@@ -406,8 +406,6 @@ async function tool_type(args: any): Promise<ToolResult<{ typed: boolean }>> {
   const clear = args?.clear !== false; // default true
 
   const tag = el.tagName.toLowerCase();
-  showHighlight(el, 'type');
-  safeFocus(el);
 
   if (tag === 'input' || tag === 'textarea') {
     const input = el as HTMLInputElement | HTMLTextAreaElement;
@@ -441,6 +439,9 @@ async function tool_type(args: any): Promise<ToolResult<{ typed: boolean }>> {
       };
     }
 
+    showHighlight(el, 'type');
+    safeFocus(el);
+
     if (clear) input.value = '';
     input.value = clear ? text : input.value + text;
     dispatchInputEvents(el);
@@ -450,6 +451,9 @@ async function tool_type(args: any): Promise<ToolResult<{ typed: boolean }>> {
 
   const htmlEl = el as HTMLElement;
   if (htmlEl.isContentEditable) {
+    showHighlight(el, 'type');
+    safeFocus(el);
+
     if (clear) htmlEl.innerText = '';
     htmlEl.innerText = clear ? text : (htmlEl.innerText || '') + text;
     dispatchInputEvents(el);
