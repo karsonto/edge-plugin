@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions / Discussions
+    url: https://github.com/karsonto/edge-plugin/discussions
+    about: Please ask and answer questions here.
+  - name: Security issues
+    url: https://github.com/karsonto/edge-plugin/security/advisories/new
+    about: Please report security vulnerabilities privately.
+

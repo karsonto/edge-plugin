@@ -1,0 +1,118 @@
+/**
+ * Content Script 入口
+ */
+
+import type { ExecuteToolMessage, Message, PageContext } from '@/shared/types';
+import { onMessage, createMessage } from '@/shared/utils/message-bridge';
+import { extractPageContext } from './text-extractor';
+import { SelectionHandler } from './selection-handler';
+import { clearHighlight } from './overlay';
+import { executeTool } from './browser-tools';
+import { APP_NAME } from '@/shared/brand';
+
+console.log(`${APP_NAME} content script loaded`);
+
+// 注入 CSS 样式
+const style = document.createElement('style');
+style.textContent = `
+/* Content Script 样式 */
+.edage-floating-button {
+  position: fixed;
+  z-index: 999999;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  transition: all 0.2s;
+}
+
+.edage-floating-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
+}
+
+.edage-floating-button:active {
+  transform: translateY(0);
+}
+`;
+document.head.appendChild(style);
+
+// 初始化选择处理器
+const selectionHandler = new SelectionHandler({
+  showFloatingButton: false,
+  onSelection: (text) => {
+    console.log('Text selected:', text.substring(0, 50) + '...');
+  },
+});
+
+selectionHandler.init();
+
+// 监听来自 background 或 sidepanel 的消息
+onMessage((message: Message, _sender, sendResponse) => {
+  console.log('Content script received message:', message.type);
+
+  switch (message.type) {
+    case 'GET_PAGE_CONTEXT':
+      handleGetPageContext(sendResponse);
+      return true; // 保持消息通道开启
+
+    case 'EXECUTE_TOOL':
+      handleExecuteTool(message as ExecuteToolMessage, sendResponse);
+      return true;
+
+    default:
+      break;
+  }
+
+  return false;
+});
+
+/**
+ * 处理获取页面上下文请求
+ */
+function handleGetPageContext(
+  sendResponse: (response: any) => void
+) {
+  try {
+    // 默认提取“全页可见文字”，更适配 SPA/后台系统页面
+    const context: PageContext = extractPageContext('full');
+    
+    sendResponse(
+      createMessage('PAGE_CONTEXT_RESPONSE', context)
+    );
+  } catch (error) {
+    console.error('Error extracting page context:', error);
+    sendResponse({
+      type: 'ERROR',
+      payload: {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+    });
+  }
+}
+
+async function handleExecuteTool(message: ExecuteToolMessage, sendResponse: (response: any) => void) {
+  try {
+    const { runId, stepId, call } = message.payload;
+    const result = await executeTool(call);
+    sendResponse(createMessage('TOOL_RESULT', { runId, stepId, result }));
+  } catch (error) {
+    sendResponse({
+      type: 'ERROR',
+      payload: {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+    });
+  }
+}
+
+// 页面卸载时清理
+window.addEventListener('beforeunload', () => {
+  selectionHandler.destroy();
+  clearHighlight();
+});

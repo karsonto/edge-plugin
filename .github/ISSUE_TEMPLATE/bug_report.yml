@@ -1,0 +1,56 @@
+name: Bug Report
+description: Report a reproducible bug
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected to happen.
+      placeholder: Clear and concise description…
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide step-by-step instructions.
+      placeholder: |
+        1. Go to…
+        2. Click…
+        3. See error…
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+      description: Paste console logs or attach screenshots. Please redact sensitive info.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: Chrome/Edge version
+      placeholder: "Edge 120 / Chrome 121"
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Windows 11 / macOS / Linux"
+    validations:
+      required: false
+
