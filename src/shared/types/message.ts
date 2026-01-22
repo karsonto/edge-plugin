@@ -28,7 +28,8 @@ export type MessageType =
   | 'SETTINGS_RESPONSE'       // 设置响应
   | 'TAKE_SCREENSHOT'         // 截图请求
   | 'DOWNLOAD_FILE'           // 下载文件请求
-  | 'REFRESH_PAGE_CONTEXT';   // 通知 sidepanel 刷新页面内容
+  | 'REFRESH_PAGE_CONTEXT'   // 通知 sidepanel 刷新页面内容
+  | 'EXECUTE_BACKGROUND_TOOL'; // 执行需要在 background 执行的工具
 
 export interface BaseMessage {
   type: MessageType;
@@ -207,6 +208,14 @@ export interface DownloadFileMessage extends BaseMessage {
   };
 }
 
+export interface ExecuteBackgroundToolMessage extends BaseMessage {
+  type: 'EXECUTE_BACKGROUND_TOOL';
+  payload: {
+    tool: string;
+    args: any;
+  };
+}
+
 export type Message =
   | GetPageContextMessage
   | PageContextResponseMessage
@@ -228,7 +237,8 @@ export type Message =
   | LoadSettingsMessage
   | SettingsResponseMessage
   | TakeScreenshotMessage
-  | DownloadFileMessage;
+  | DownloadFileMessage
+  | ExecuteBackgroundToolMessage;
 
 /**
  * 聊天消息类型

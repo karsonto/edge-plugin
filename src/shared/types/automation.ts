@@ -21,7 +21,16 @@ export type ToolName =
   | 'pressKey'
   | 'getValue'
   | 'screenshot'
-  | 'download';
+  | 'download'
+  // 导航工具
+  | 'navigate'
+  | 'refresh'
+  | 'goBack'
+  | 'goForward'
+  // 窗口管理工具
+  | 'getWindowsAndTabs'
+  | 'switchTab'
+  | 'closeTab';
 
 export type WaitForState = 'attached' | 'detached';
 

@@ -8,6 +8,15 @@ import { storageManager } from './storage-manager';
 import { createMessage, generateMessageId } from '@/shared/utils/message-bridge';
 import { automationOrchestrator } from './automation-orchestrator';
 import { takeScreenshot, downloadFile, type ScreenshotOptions, type DownloadOptions } from './media-service';
+import {
+  tool_navigate,
+  tool_refresh,
+  tool_goBack,
+  tool_goForward,
+  tool_getWindowsAndTabs,
+  tool_switchTab,
+  tool_closeTab,
+} from './browser-tools';
 
 /**
  * 处理来自 content script 或 sidepanel 的消息
@@ -59,6 +68,10 @@ export async function handleMessage(
 
       case 'DOWNLOAD_FILE':
         await handleDownloadFile(message as any, sendResponse);
+        return true;
+
+      case 'EXECUTE_BACKGROUND_TOOL':
+        await handleExecuteBackgroundTool(message as any, sendResponse);
         return true;
 
       default:
@@ -251,4 +264,52 @@ async function handleDownloadFile(
 ) {
   const result = await downloadFile(message.payload);
   sendResponse(result);
+}
+
+/**
+ * 处理需要在 background 执行的工具
+ */
+async function handleExecuteBackgroundTool(
+  message: { payload: { tool: string; args: any } },
+  sendResponse: (response?: any) => void
+) {
+  const { tool, args } = message.payload;
+
+  try {
+    let result;
+    switch (tool) {
+      case 'navigate':
+        result = await tool_navigate(args);
+        break;
+      case 'refresh':
+        result = await tool_refresh(args);
+        break;
+      case 'goBack':
+        result = await tool_goBack(args);
+        break;
+      case 'goForward':
+        result = await tool_goForward(args);
+        break;
+      case 'getWindowsAndTabs':
+        result = await tool_getWindowsAndTabs(args);
+        break;
+      case 'switchTab':
+        result = await tool_switchTab(args);
+        break;
+      case 'closeTab':
+        result = await tool_closeTab(args);
+        break;
+      default:
+        result = { ok: false, tool: tool as any, error: `Unknown background tool: ${tool}` };
+    }
+    sendResponse({ result });
+  } catch (error) {
+    sendResponse({
+      result: {
+        ok: false,
+        tool: tool as any,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+    });
+  }
 }

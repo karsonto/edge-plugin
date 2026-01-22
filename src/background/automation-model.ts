@@ -39,13 +39,18 @@ export function getToolDefinitions() {
       type: 'function',
       function: {
         name: 'query',
-        description: '使用 CSS 选择器查询页面元素，返回元素列表及其 elementId（供后续工具使用）',
+        description: '使用 CSS 选择器或 XPath 查询页面元素，返回元素列表及其 elementId（供后续工具使用）。注意：CSS 选择器不支持 :contains()、:has()、:first、:last 等 jQuery 伪选择器。如需按文本查找元素，请使用 findByText 工具或 XPath（selectorType: "xpath"）',
         parameters: {
           type: 'object',
           properties: {
             selector: {
               type: 'string',
-              description: 'CSS 选择器，例如 "#submit", ".btn-primary", "input[name=\'username\']"'
+              description: 'CSS 选择器或 XPath 表达式，例如 "#submit", ".btn-primary", "//button[@type=\'submit\']"。注意：不要使用 :contains() 等 jQuery 选择器，如需按文本查找请使用 findByText 工具'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             }
           },
           required: ['selector']
@@ -88,7 +93,12 @@ export function getToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'CSS 选择器（备用方案）'
+              description: 'CSS 选择器或 XPath 表达式（备用方案）'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             },
             force: {
               type: 'boolean',
@@ -113,7 +123,12 @@ export function getToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'CSS 选择器'
+              description: 'CSS 选择器或 XPath 表达式'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             },
             text: {
               type: 'string',
@@ -163,7 +178,12 @@ export function getToolDefinitions() {
           properties: {
             selector: {
               type: 'string',
-              description: 'CSS 选择器'
+              description: 'CSS 选择器或 XPath 表达式'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             },
             state: {
               type: 'string',
@@ -194,7 +214,12 @@ export function getToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'CSS 选择器'
+              description: 'CSS 选择器或 XPath 表达式'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             },
             value: {
               type: 'string',
@@ -227,7 +252,12 @@ export function getToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'CSS 选择器'
+              description: 'CSS 选择器或 XPath 表达式'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             },
             checked: {
               type: 'boolean',
@@ -252,7 +282,12 @@ export function getToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'CSS 选择器'
+              description: 'CSS 选择器或 XPath 表达式'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             },
             duration: {
               type: 'number',
@@ -282,7 +317,12 @@ export function getToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'CSS 选择器'
+              description: 'CSS 选择器或 XPath 表达式'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             },
             modifiers: {
               type: 'object',
@@ -312,7 +352,12 @@ export function getToolDefinitions() {
             },
             selector: {
               type: 'string',
-              description: 'CSS 选择器'
+              description: 'CSS 选择器或 XPath 表达式'
+            },
+            selectorType: {
+              type: 'string',
+              enum: ['css', 'xpath'],
+              description: '选择器类型，默认为 css'
             },
             attribute: {
               type: 'string',
@@ -399,6 +444,159 @@ export function getToolDefinitions() {
           required: []
         }
       }
+    },
+    // ============ 导航工具 ============
+    {
+      type: 'function',
+      function: {
+        name: 'navigate',
+        description: '导航到指定 URL、在新窗口/标签页打开、刷新页面或浏览器历史前进/后退',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: '要导航到的 URL。特殊值："back" 表示后退，"forward" 表示前进'
+            },
+            newWindow: {
+              type: 'boolean',
+              description: '在新窗口打开，默认 false'
+            },
+            width: {
+              type: 'number',
+              description: '新窗口宽度（像素），默认 1280'
+            },
+            height: {
+              type: 'number',
+              description: '新窗口高度（像素），默认 720'
+            },
+            refresh: {
+              type: 'boolean',
+              description: '刷新当前标签页，默认 false'
+            },
+            tabId: {
+              type: 'number',
+              description: '目标标签页 ID（可选）'
+            },
+            windowId: {
+              type: 'number',
+              description: '目标窗口 ID（可选）'
+            },
+            background: {
+              type: 'boolean',
+              description: '在后台打开（不激活标签页），默认 false'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'refresh',
+        description: '刷新当前页面',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'number',
+              description: '要刷新的标签页 ID（可选，默认当前活动标签页）'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'goBack',
+        description: '浏览器历史后退',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'number',
+              description: '目标标签页 ID（可选，默认当前活动标签页）'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'goForward',
+        description: '浏览器历史前进',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'number',
+              description: '目标标签页 ID（可选，默认当前活动标签页）'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    // ============ 窗口管理工具 ============
+    {
+      type: 'function',
+      function: {
+        name: 'getWindowsAndTabs',
+        description: '获取所有打开的浏览器窗口和标签页信息',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'switchTab',
+        description: '切换到指定标签页',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'number',
+              description: '要切换到的标签页 ID'
+            },
+            windowId: {
+              type: 'number',
+              description: '窗口 ID（可选，用于确保窗口获得焦点）'
+            }
+          },
+          required: ['tabId']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'closeTab',
+        description: '关闭一个或多个标签页',
+        parameters: {
+          type: 'object',
+          properties: {
+            tabIds: {
+              type: 'array',
+              items: { type: 'number' },
+              description: '要关闭的标签页 ID 数组'
+            },
+            url: {
+              type: 'string',
+              description: '关闭匹配此 URL 的标签页（可选）'
+            }
+          },
+          required: []
+        }
+      }
     }
   ];
 }
@@ -431,6 +629,13 @@ export function toolSpecText(): string {
     '- getValue: { "elementId"?: string, "selector"?: string, "attribute"?: string }',
     '- screenshot: { "type"?: "visible"|"fullpage", "selector"?: string, "format"?: "png"|"jpeg", "quality"?: number, "download"?: boolean, "filename"?: string }',
     '- download: { "url"?: string, "content"?: string, "filename"?: string, "contentType"?: string, "elementId"?: string, "selector"?: string }',
+    '- navigate: { "url"?: string, "newWindow"?: boolean, "width"?: number, "height"?: number, "refresh"?: boolean, "tabId"?: number, "windowId"?: number, "background"?: boolean }',
+    '- refresh: { "tabId"?: number }',
+    '- goBack: { "tabId"?: number }',
+    '- goForward: { "tabId"?: number }',
+    '- getWindowsAndTabs: {}',
+    '- switchTab: { "tabId": number, "windowId"?: number }',
+    '- closeTab: { "tabIds"?: number[], "url"?: string }',
     '',
     'Rules:',
     '- Prefer elementId returned by query/findByText over raw selectors.',
@@ -477,6 +682,15 @@ const TOOL_SET: Set<ToolName> = new Set([
   'getValue',
   'screenshot',
   'download',
+  // 导航工具
+  'navigate',
+  'refresh',
+  'goBack',
+  'goForward',
+  // 窗口管理工具
+  'getWindowsAndTabs',
+  'switchTab',
+  'closeTab',
 ]);
 
 export function validateToolCall(call: ToolCall): { ok: true } | { ok: false; reason: string } {
@@ -505,6 +719,14 @@ export function validateToolCall(call: ToolCall): { ok: true } | { ok: false; re
   if (tool === 'getValue' && !args?.elementId && !args?.selector) return { ok: false, reason: 'getValue requires elementId or selector' };
   if (tool === 'download' && !args?.url && !args?.content && !args?.elementId && !args?.selector) {
     return { ok: false, reason: 'download requires url, content, elementId, or selector' };
+  }
+  
+  // 导航工具验证
+  if (tool === 'navigate' && !args?.url && !args?.refresh && args?.url !== 'back' && args?.url !== 'forward') {
+    return { ok: false, reason: 'navigate requires url, refresh=true, or url="back"/"forward"' };
+  }
+  if (tool === 'switchTab' && typeof args?.tabId !== 'number') {
+    return { ok: false, reason: 'switchTab requires tabId (number)' };
   }
 
   return { ok: true };

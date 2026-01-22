@@ -125,3 +125,38 @@ export const DEFAULT_CONFIG: AppConfig = {
     excludeDomains: [],
   },
 };
+
+/**
+ * 工具执行相关常量
+ */
+export const TOOL_TIMEOUTS = {
+  DEFAULT_WAIT: 1000,
+  CLICK_DELAY: 100,
+  KEYBOARD_DELAY: 50,
+  NETWORK_TIMEOUT: 30000,
+  DOM_STABLE_TIMEOUT: 800,
+  DOM_STABLE_IDLE: 160,
+  ELEMENT_WAIT_TIMEOUT: 5000,
+} as const;
+
+/**
+ * 工具错误消息
+ */
+export const TOOL_ERRORS = {
+  ELEMENT_NOT_FOUND: 'Element not found',
+  INVALID_SELECTOR: 'Invalid selector',
+  TAB_NOT_FOUND: 'Tab not found',
+  WINDOW_NOT_FOUND: 'Window not found',
+  INVALID_URL: 'Invalid URL',
+  NAVIGATION_FAILED: 'Navigation failed',
+  SELECTOR_TYPE_NOT_SUPPORTED: 'Selector type not supported',
+  MISSING_REQUIRED_PARAM: 'Missing required parameter',
+} as const;
+
+/**
+ * 默认窗口尺寸
+ */
+export const DEFAULT_WINDOW = {
+  WIDTH: 1280,
+  HEIGHT: 720,
+} as const;

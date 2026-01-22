@@ -5,13 +5,19 @@
 
 import type { ElementSummary, ToolCall, ToolName, ToolResult, WaitForState } from '@/shared/types';
 import { extractAllVisibleText, truncateText } from '@/shared/utils/text-processor';
-import { isElementVisible } from '@/shared/utils/dom-utils';
+import { isElementVisible, resolveSelector, resolveSelectorAll } from '@/shared/utils/dom-utils';
 import { showHighlight } from './overlay';
+import { TOOL_ERRORS } from '@/shared/constants';
 
 type StoredElement = { el: Element; createdAt: number };
 
 const elementStore = new Map<string, StoredElement>();
 let elementSeq = 0;
+
+// 脚本执行标记（用于避免重复执行某些操作）
+// 预留功能，未来可用于优化重复操作
+// const executionCache = new Map<string, { timestamp: number; result?: any }>();
+// const CACHE_TTL = 1000; // 1秒缓存
 
 function now() {
   return Date.now();
@@ -121,6 +127,38 @@ function getStoredElement(id?: string): Element | null {
   const entry = elementStore.get(id);
   return entry?.el || null;
 }
+
+/**
+ * 检查操作是否在缓存中（避免短时间内重复执行）
+ * 预留功能，未来可用于优化重复操作
+ */
+// function isCached(key: string): boolean {
+//   const cached = executionCache.get(key);
+//   if (!cached) return false;
+//   const age = now() - cached.timestamp;
+//   if (age > CACHE_TTL) {
+//     executionCache.delete(key);
+//     return false;
+//   }
+//   return true;
+// }
+
+/**
+ * 设置操作缓存
+ * 预留功能，未来可用于优化重复操作
+ */
+// function setCache(key: string, result?: any): void {
+//   executionCache.set(key, { timestamp: now(), result });
+//   // 清理过期缓存
+//   if (executionCache.size > 100) {
+//     const cutoff = now() - CACHE_TTL;
+//     for (const [k, v] of executionCache.entries()) {
+//       if (v.timestamp < cutoff) {
+//         executionCache.delete(k);
+//       }
+//     }
+//   }
+// }
 
 function getRect(el: Element) {
   const r = (el as HTMLElement).getBoundingClientRect?.();
@@ -266,10 +304,29 @@ function clickElement(el: Element) {
 }
 
 function resolveTargetElement(args: any): Element | null {
-  const byId = getStoredElement(args?.elementId);
-  if (byId) return byId;
+  // 先尝试通过 elementId 查找
+  if (args?.elementId) {
+    const byId = getStoredElement(args.elementId);
+    if (byId) return byId;
+    // elementId 存在但找不到元素，说明已过期
+    console.warn(`Element with id ${args.elementId} not found in store (may be expired)`);
+  }
+  
+  // 再尝试通过 selector 查找
   const sel = (args?.selector as string | undefined)?.trim();
-  if (sel) return document.querySelector(sel);
+  if (sel) {
+    const selectorType = (args?.selectorType as 'css' | 'xpath' | undefined) || 'css';
+    try {
+      const element = resolveSelector(sel, selectorType);
+      if (element) return element;
+      // selector 存在但找不到元素
+      console.warn(`Element not found with selector: ${sel} (type: ${selectorType})`);
+    } catch (error) {
+      console.error(`Error resolving selector: ${sel}`, error);
+      throw error; // 重新抛出选择器错误（如无效 CSS）
+    }
+  }
+  
   return null;
 }
 
@@ -285,14 +342,35 @@ function tool_getVisibleText(_args: any): ToolResult<{ text: string }> {
 
 function tool_query(args: any): ToolResult<{ elements: ElementSummary[] }> {
   const selector = (args?.selector as string | undefined)?.trim();
-  if (!selector) return { ok: false, tool: 'query', error: 'Missing selector' };
-  const nodes = Array.from(document.querySelectorAll(selector)).filter(isElementVisible).slice(0, 20);
-  const elements = nodes.map((el) => {
-    const id = storeElement(el);
-    const summary = summarizeElement(el);
-    return { id, ...summary };
-  });
-  return { ok: true, tool: 'query', data: { elements } };
+  if (!selector) return { ok: false, tool: 'query', error: TOOL_ERRORS.MISSING_REQUIRED_PARAM + ': selector' };
+  const selectorType = (args?.selectorType as 'css' | 'xpath' | undefined) || 'css';
+  
+  if (selectorType !== 'css' && selectorType !== 'xpath') {
+    return { ok: false, tool: 'query', error: TOOL_ERRORS.SELECTOR_TYPE_NOT_SUPPORTED };
+  }
+  
+  try {
+    const nodes = resolveSelectorAll(selector, selectorType)
+      .filter(isElementVisible)
+      .slice(0, 20);
+    const elements = nodes.map((el) => {
+      const id = storeElement(el);
+      const summary = summarizeElement(el);
+      return { id, ...summary };
+    });
+    return { ok: true, tool: 'query', data: { elements } };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    // 提供更友好的错误消息
+    if (errorMsg.includes(':contains(') || errorMsg.includes('jQuery') || errorMsg.includes('pseudo-selectors')) {
+      return { 
+        ok: false, 
+        tool: 'query', 
+        error: `${errorMsg} 提示：如果要用文本查找元素，请使用 findByText 工具，或使用 XPath 选择器（设置 selectorType: "xpath"）`
+      };
+    }
+    return { ok: false, tool: 'query', error: errorMsg };
+  }
 }
 
 function tool_findByText(args: any): ToolResult<{ elements: ElementSummary[] }> {
@@ -355,7 +433,33 @@ function tool_findByText(args: any): ToolResult<{ elements: ElementSummary[] }> 
 
 async function tool_click(args: any): Promise<ToolResult<{ clicked: boolean }>> {
   const el = resolveTargetElement(args);
-  if (!el) return { ok: false, tool: 'click', error: 'Target element not found' };
+  
+  if (!el) {
+    // 提供详细的错误信息
+    let errorMsg = 'Target element not found. ';
+    const diagnostics: string[] = [];
+    
+    if (args?.elementId) {
+      diagnostics.push(`使用的 elementId: ${args.elementId}`);
+      diagnostics.push('可能原因：elementId 已过期（元素存储有时效性，约5分钟）或页面已刷新');
+      diagnostics.push('建议：使用 query 或 findByText 重新查找元素');
+    }
+    
+    if (args?.selector) {
+      diagnostics.push(`使用的选择器: ${args.selector}`);
+      diagnostics.push(`选择器类型: ${args.selectorType || 'css'}`);
+      diagnostics.push('可能原因：选择器不正确、元素尚未加载、元素在 iframe 中');
+      diagnostics.push('建议：1) 使用 waitFor 等待元素出现 2) 使用 query 验证选择器是否正确 3) 使用 findByText 按文本查找');
+    }
+    
+    if (!args?.elementId && !args?.selector) {
+      diagnostics.push('未提供 elementId 或 selector');
+      diagnostics.push('建议：提供 elementId（通过 query/findByText 获取）或 selector');
+    }
+    
+    errorMsg += diagnostics.join(' | ');
+    return { ok: false, tool: 'click', error: errorMsg };
+  }
 
   // 导航确认（新开窗口/外链跳转）
   if (el.tagName.toLowerCase() === 'a') {
@@ -400,7 +504,17 @@ async function tool_click(args: any): Promise<ToolResult<{ clicked: boolean }>> 
 
 async function tool_type(args: any): Promise<ToolResult<{ typed: boolean }>> {
   const el = resolveTargetElement(args);
-  if (!el) return { ok: false, tool: 'type', error: 'Target element not found' };
+  if (!el) {
+    let errorMsg = 'Target element not found. ';
+    if (args?.elementId) {
+      errorMsg += `elementId: ${args.elementId} 可能已过期，请使用 query 或 findByText 重新查找元素`;
+    } else if (args?.selector) {
+      errorMsg += `选择器 "${args.selector}" 未找到元素，建议使用 waitFor 等待或使用 findByText 按文本查找`;
+    } else {
+      errorMsg += '请提供 elementId 或 selector';
+    }
+    return { ok: false, tool: 'type', error: errorMsg };
+  }
   const text = typeof args?.text === 'string' ? args.text : '';
   const clear = args?.clear !== false; // default true
 
@@ -512,7 +626,17 @@ function tool_waitFor(args: any): Promise<ToolResult<{ found: boolean }>> {
  */
 async function tool_select(args: any): Promise<ToolResult<{ selected: string | null }>> {
   const el = resolveTargetElement(args);
-  if (!el) return { ok: false, tool: 'select', error: 'Target element not found' };
+  if (!el) {
+    let errorMsg = 'Target element not found. ';
+    if (args?.elementId) {
+      errorMsg += `elementId: ${args.elementId} 可能已过期，请使用 query 或 findByText 重新查找元素`;
+    } else if (args?.selector) {
+      errorMsg += `选择器 "${args.selector}" 未找到元素，建议使用 waitFor 等待或使用 findByText 按文本查找`;
+    } else {
+      errorMsg += '请提供 elementId 或 selector';
+    }
+    return { ok: false, tool: 'select', error: errorMsg };
+  }
 
   const tag = el.tagName.toLowerCase();
 
@@ -583,7 +707,17 @@ async function tool_select(args: any): Promise<ToolResult<{ selected: string | n
  */
 async function tool_check(args: any): Promise<ToolResult<{ checked: boolean }>> {
   const el = resolveTargetElement(args);
-  if (!el) return { ok: false, tool: 'check', error: 'Target element not found' };
+  if (!el) {
+    let errorMsg = 'Target element not found. ';
+    if (args?.elementId) {
+      errorMsg += `elementId: ${args.elementId} 可能已过期，请使用 query 或 findByText 重新查找元素`;
+    } else if (args?.selector) {
+      errorMsg += `选择器 "${args.selector}" 未找到元素，建议使用 waitFor 等待或使用 findByText 按文本查找`;
+    } else {
+      errorMsg += '请提供 elementId 或 selector';
+    }
+    return { ok: false, tool: 'check', error: errorMsg };
+  }
 
   const input = el as HTMLInputElement;
   const targetChecked = args.checked;
@@ -644,7 +778,17 @@ async function tool_check(args: any): Promise<ToolResult<{ checked: boolean }>> 
  */
 async function tool_hover(args: any): Promise<ToolResult<{ hovered: boolean }>> {
   const el = resolveTargetElement(args);
-  if (!el) return { ok: false, tool: 'hover', error: 'Target element not found' };
+  if (!el) {
+    let errorMsg = 'Target element not found. ';
+    if (args?.elementId) {
+      errorMsg += `elementId: ${args.elementId} 可能已过期，请使用 query 或 findByText 重新查找元素`;
+    } else if (args?.selector) {
+      errorMsg += `选择器 "${args.selector}" 未找到元素，建议使用 waitFor 等待或使用 findByText 按文本查找`;
+    } else {
+      errorMsg += '请提供 elementId 或 selector';
+    }
+    return { ok: false, tool: 'hover', error: errorMsg };
+  }
 
   const duration = typeof args.duration === 'number' ? args.duration : 300;
   
@@ -742,7 +886,17 @@ function tool_pressKey(args: any): ToolResult<{ pressed: boolean }> {
  */
 function tool_getValue(args: any): ToolResult<{ value?: string; text?: string; checked?: boolean; attribute?: string }> {
   const el = resolveTargetElement(args);
-  if (!el) return { ok: false, tool: 'getValue', error: 'Target element not found' };
+  if (!el) {
+    let errorMsg = 'Target element not found. ';
+    if (args?.elementId) {
+      errorMsg += `elementId: ${args.elementId} 可能已过期，请使用 query 或 findByText 重新查找元素`;
+    } else if (args?.selector) {
+      errorMsg += `选择器 "${args.selector}" 未找到元素，建议使用 waitFor 等待或使用 findByText 按文本查找`;
+    } else {
+      errorMsg += '请提供 elementId 或 selector';
+    }
+    return { ok: false, tool: 'getValue', error: errorMsg };
+  }
   
   const attr = args.attribute;
   
@@ -935,9 +1089,37 @@ async function tool_download(args: any): Promise<ToolResult<{ downloadId?: numbe
   });
 }
 
+// 需要在 background 执行的工具列表
+const BACKGROUND_TOOLS: Set<ToolName> = new Set([
+  'navigate',
+  'refresh',
+  'goBack',
+  'goForward',
+  'getWindowsAndTabs',
+  'switchTab',
+  'closeTab',
+]);
+
 export async function executeTool(call: ToolCall): Promise<ToolResult> {
   const tool = call.tool as ToolName;
   const args = call.args || {};
+
+  // 如果工具需要在 background 执行，发送消息到 background
+  if (BACKGROUND_TOOLS.has(tool)) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'EXECUTE_BACKGROUND_TOOL',
+        payload: { tool, args },
+      });
+      return response?.result || response || { ok: false, tool, error: 'No response from background' };
+    } catch (error) {
+      return {
+        ok: false,
+        tool,
+        error: `Background tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
 
   try {
     switch (tool) {
