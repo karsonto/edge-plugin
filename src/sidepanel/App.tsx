@@ -52,6 +52,22 @@ function App() {
     setEnableFunctionCalling(ai.enableFunctionCalling || false);
   }, [ai.enableFunctionCalling]);
 
+  // 快捷键：Ctrl+Shift+R 刷新页面内容
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Shift+R 或 Cmd+Shift+R 刷新页面内容
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'R') {
+        e.preventDefault();
+        if (!contextLoading) {
+          fetchPageContext();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [contextLoading, fetchPageContext]);
+
   // 处理 Function Calling 开关切换
   const handleToggleFunctionCalling = (enabled: boolean) => {
     setEnableFunctionCalling(enabled);
@@ -162,7 +178,7 @@ function App() {
           <button
             onClick={handleRefresh}
             className="w-8 h-8 flex items-center justify-center rounded-md bg-white/20 hover:bg-white/30 transition-colors"
-            title="刷新页面内容"
+            title="刷新页面内容 (Ctrl+Shift+R)"
             disabled={contextLoading}
           >
             <RefreshCw size={16} className={contextLoading ? 'animate-spin' : ''} />
