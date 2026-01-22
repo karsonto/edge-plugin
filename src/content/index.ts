@@ -130,8 +130,130 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ============ 路由变化监听 ============
+let lastUrl = location.href;
+let refreshTimer: number | null = null;
+let domChangeTimer: number | null = null;
+
+/**
+ * 通知 sidepanel 刷新页面内容（带防抖）
+ */
+function notifyPageContextRefresh() {
+  // 清除之前的定时器
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+  }
+  
+  // 防抖：500ms 内多次变化只触发一次
+  refreshTimer = window.setTimeout(() => {
+    const currentUrl = location.href;
+    
+    // 只有当 URL 真正变化时才通知
+    if (currentUrl !== lastUrl) {
+      lastUrl = currentUrl;
+      console.log(`${APP_NAME}: 检测到路由变化，通知刷新页面内容`, currentUrl);
+      
+      // 通知 sidepanel 刷新
+      chrome.runtime.sendMessage(
+        createMessage('REFRESH_PAGE_CONTEXT', {}),
+        () => {
+          // 忽略无接收者的错误（sidepanel 可能未打开）
+          if (chrome.runtime.lastError) {
+            // 静默忽略
+          }
+        }
+      );
+    }
+  }, 500);
+}
+
+// 1. 监听浏览器前进后退（popstate）
+window.addEventListener('popstate', () => {
+  notifyPageContextRefresh();
+});
+
+// 2. 监听 hash 变化（hash 路由）
+window.addEventListener('hashchange', () => {
+  notifyPageContextRefresh();
+});
+
+// 3. 拦截 SPA 路由变化（pushState 和 replaceState）
+const originalPushState = history.pushState;
+const originalReplaceState = history.replaceState;
+
+history.pushState = function(...args) {
+  originalPushState.apply(history, args);
+  notifyPageContextRefresh();
+};
+
+history.replaceState = function(...args) {
+  originalReplaceState.apply(history, args);
+  notifyPageContextRefresh();
+};
+
+// 4. 监听 DOM 变化（作为补充，检测页面内容变化）
+// 注意：这个可能会频繁触发，所以使用较长的防抖时间
+let domObserver: MutationObserver | null = null;
+
+function initDOMObserver() {
+  if (domObserver) {
+    return; // 已经初始化
+  }
+
+  domObserver = new MutationObserver(() => {
+    // 清除之前的定时器
+    if (domChangeTimer) {
+      clearTimeout(domChangeTimer);
+    }
+    
+    // 较长的防抖时间（2秒），避免频繁刷新
+    domChangeTimer = window.setTimeout(() => {
+      // 检查 URL 是否变化（可能通过其他方式变化）
+      const currentUrl = location.href;
+      if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        notifyPageContextRefresh();
+      }
+    }, 2000);
+  });
+
+  // 开始观察 DOM 变化（但只在 body 存在时）
+  if (document.body) {
+    domObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'id'], // 只观察可能影响路由的属性
+    });
+  } else {
+    // 如果 body 还没加载，等待 DOMContentLoaded
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body && domObserver) {
+        domObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['class', 'id'],
+        });
+      }
+    });
+  }
+}
+
+// 初始化 DOM 观察器
+initDOMObserver();
+
 // 页面卸载时清理
 window.addEventListener('beforeunload', () => {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+  }
+  if (domChangeTimer) {
+    clearTimeout(domChangeTimer);
+  }
+  if (domObserver) {
+    domObserver.disconnect();
+  }
   selectionHandler.destroy();
   clearHighlight();
 });
