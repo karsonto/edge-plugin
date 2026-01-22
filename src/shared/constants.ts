@@ -102,7 +102,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     apiKey: '',
     model: 'qwen3',
     temperature: 0.7,
-    maxTokens: 2000,
+    maxTokens: 65535,
     topP: 0.8,
     repetitionPenalty: 1.05,
     // Default OpenAI-compatible endpoint for "custom" provider.

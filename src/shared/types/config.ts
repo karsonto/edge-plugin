@@ -117,7 +117,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     apiKey: '',
     model: 'gpt-4-turbo-preview',
     temperature: 0.7,
-    maxTokens: 2000,
+    maxTokens: 65535,
     enableFunctionCalling: false,  // 默认关闭
   },
   quickActions: DEFAULT_QUICK_ACTIONS,

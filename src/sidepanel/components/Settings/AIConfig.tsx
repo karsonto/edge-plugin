@@ -154,7 +154,7 @@ export function AIConfig({ config, onChange }: AIConfigProps) {
                 <input
                   type="number"
                   min="100"
-                  max="4000"
+                  max="131072"
                   step="100"
                   value={config.maxTokens}
                   onChange={(e) => onChange({ maxTokens: parseInt(e.target.value) })}

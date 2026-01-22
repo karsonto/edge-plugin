@@ -46,7 +46,7 @@ export class AIService {
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.temperature = config.temperature || 0.7;
-    this.maxTokens = config.maxTokens || 2000;
+    this.maxTokens = config.maxTokens || 65535;
     this.topP = config.topP;
     this.repetitionPenalty = config.repetitionPenalty;
     this.requireApiKey = config.provider !== 'custom';
