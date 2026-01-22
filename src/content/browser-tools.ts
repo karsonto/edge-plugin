@@ -277,11 +277,10 @@ function tool_getPageInfo(): ToolResult<{ url: string; title: string }> {
   return { ok: true, tool: 'getPageInfo', data: { url: location.href, title: document.title } };
 }
 
-function tool_getVisibleText(args: any): ToolResult<{ text: string }> {
-  const limit = typeof args?.limit === 'number' ? args.limit : 8000;
+function tool_getVisibleText(_args: any): ToolResult<{ text: string }> {
+  // 使用与刷新页面内容相同的逻辑，不限制字数
   const text = extractAllVisibleText(document);
-  const truncated = truncateText(text, limit);
-  return { ok: true, tool: 'getVisibleText', data: { text: truncated } };
+  return { ok: true, tool: 'getVisibleText', data: { text } };
 }
 
 function tool_query(args: any): ToolResult<{ elements: ElementSummary[] }> {

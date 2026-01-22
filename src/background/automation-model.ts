@@ -27,15 +27,10 @@ export function getToolDefinitions() {
       type: 'function',
       function: {
         name: 'getVisibleText',
-        description: '提取页面可见文本内容，用于理解页面上下文',
+        description: '提取页面完整可见文本内容（包括表单值、iframe内容），用于理解页面上下文。返回完整文本，无字数限制',
         parameters: {
           type: 'object',
-          properties: {
-            limit: {
-              type: 'number',
-              description: '返回文本的最大字符数，默认 4000'
-            }
-          },
+          properties: {},
           required: []
         }
       }
@@ -422,7 +417,7 @@ export function toolSpecText(): string {
     '',
     'Available tools (ToolName) and args:',
     '- getPageInfo: {}',
-    '- getVisibleText: { "limit"?: number }',
+    '- getVisibleText: {}  // 返回完整页面文本，无字数限制',
     '- query: { "selector": string }',
     '- findByText: { "text": string, "role"?: "button" }',
     '- click: { "elementId"?: string, "selector"?: string, "force"?: boolean }',
