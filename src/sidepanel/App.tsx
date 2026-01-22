@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { TabBar, TabType } from './components/shared/TabBar';
 import { ChatContainer } from './components/Chat/ChatContainer';
 import { ContextPreview } from './components/Context/ContextPreview';
+import { FileList } from './components/Context/FileList';
 import { QuickActionsGrid } from './components/QuickActions/QuickActionsGrid';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useChat, useSettings, usePageContext } from './hooks';
+import { useFileContext } from './hooks/useFileContext';
 import { replacePlaceholders } from '@/shared/utils/text-processor';
+import { SUPPORTED_EXTENSIONS } from '@/shared/utils/file-parser';
 import { APP_NAME } from '@/shared/brand';
 import { Rocket, RefreshCw, Trash2, Maximize2 } from 'lucide-react';
 import { BottomSheet } from './components/shared/BottomSheet';
@@ -19,6 +22,8 @@ function App() {
   const [includePageContext, setIncludePageContext] = useState(true);
   // Function Calling 开关
   const [enableFunctionCalling, setEnableFunctionCalling] = useState(false);
+  // 文件拖拽状态
+  const [isDragging, setIsDragging] = useState(false);
 
   // Hooks
   const { messages, isLoading, error, sendMessage, clearMessages } = useChat();
@@ -34,6 +39,15 @@ function App() {
     isLoading: contextLoading,
     fetchPageContext,
   } = usePageContext();
+  const {
+    files: uploadedFiles,
+    isProcessing: filesProcessing,
+    error: fileError,
+    addFiles,
+    removeFile,
+    clearFiles,
+    getCombinedContent: getFileContent,
+  } = useFileContext();
 
   // 初始化：加载设置和页面上下文
   useEffect(() => {
@@ -83,12 +97,74 @@ function App() {
     return () => chrome.runtime.onMessage.removeListener(handleMessage);
   }, [contextLoading, fetchPageContext]);
 
+  // 文件拖拽处理
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 只有离开整个容器时才取消拖拽状态
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      addFiles(files);
+    }
+  }, [addFiles]);
+
   // 处理 Function Calling 开关切换
   const handleToggleFunctionCalling = (enabled: boolean) => {
     setEnableFunctionCalling(enabled);
     // 立即保存到设置
     saveSettings({ ai: { ...ai, enableFunctionCalling: enabled } });
   };
+
+  // 构建合并后的上下文（网页内容 + 文件内容）
+  const buildCombinedContext = useCallback(() => {
+    if (!includePageContext && uploadedFiles.length === 0) {
+      return undefined;
+    }
+
+    const fileContent = getFileContent();
+    
+    // 如果只有文件内容，创建一个虚拟的 PageContext
+    if (!includePageContext || !pageContext) {
+      if (fileContent) {
+        return {
+          title: '上传的文件',
+          url: 'file://uploaded',
+          content: fileContent,
+          metadata: { wordCount: fileContent.length },
+          timestamp: Date.now(),
+        };
+      }
+      return undefined;
+    }
+
+    // 合并网页内容和文件内容
+    if (fileContent) {
+      return {
+        ...pageContext,
+        content: `${pageContext.content}\n\n---\n\n${fileContent}`,
+      };
+    }
+
+    return pageContext;
+  }, [includePageContext, pageContext, uploadedFiles.length, getFileContent]);
 
   // 处理发送消息
   const handleSend = () => {
@@ -110,8 +186,9 @@ function App() {
 
     // 传递完整的 aiConfig（包含 enableFunctionCalling）
     const aiConfigWithFC = { ...ai, enableFunctionCalling };
-    // 传入完整 pageContext 对象，由 useChat 内部判断是否需要去重
-    sendMessage(inputValue, aiConfigWithFC, includePageContext ? pageContext ?? undefined : undefined);
+    // 构建合并后的上下文（网页 + 文件）
+    const combinedContext = buildCombinedContext();
+    sendMessage(inputValue, aiConfigWithFC, combinedContext);
     setInputValue('');
   };
 
@@ -131,21 +208,24 @@ function App() {
       return;
     }
 
-    if (!pageContext?.content) {
-      alert('无法获取页面内容，请刷新后重试');
+    // 构建合并后的上下文
+    const combinedContext = buildCombinedContext();
+    
+    if (!combinedContext?.content) {
+      alert('无法获取内容，请刷新页面或上传文件后重试');
       return;
     }
 
     // 替换提示词中的 {context}
     const prompt = replacePlaceholders(action.prompt, {
-      context: pageContext.content,
+      context: combinedContext.content,
     });
 
     // 不预填输入框：快捷操作直接发送，不占用用户输入区
     setInputValue('');
     const aiConfigWithFC = { ...ai, enableFunctionCalling };
-    // 传入完整 pageContext 对象，由 useChat 内部判断是否需要去重
-    sendMessage(prompt, aiConfigWithFC, pageContext);
+    // 传入合并后的上下文
+    sendMessage(prompt, aiConfigWithFC, combinedContext);
   };
 
   // 处理刷新页面内容
@@ -172,7 +252,25 @@ function App() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-white">
+    <div 
+      className="h-screen flex flex-col bg-white relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* 文件拖拽 Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-primary/10 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="bg-white rounded-xl shadow-2xl p-8 text-center border-2 border-dashed border-primary">
+            <div className="text-4xl mb-3">📄</div>
+            <p className="text-lg font-semibold text-gray-800 mb-2">释放文件以解析</p>
+            <p className="text-sm text-gray-500">
+              支持: {SUPPORTED_EXTENSIONS.join(', ')}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-primary to-primary-dark text-white">
         <div className="flex items-center gap-3">
@@ -232,6 +330,25 @@ function App() {
           <div className="h-full flex flex-col">
             {/* Context Preview */}
             <ContextPreview context={pageContext} isLoading={contextLoading} />
+
+            {/* File List */}
+            <FileList
+              files={uploadedFiles}
+              onRemove={removeFile}
+              onClear={clearFiles}
+            />
+
+            {/* 文件处理状态 */}
+            {filesProcessing && (
+              <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 text-xs text-blue-600">
+                正在解析文件...
+              </div>
+            )}
+            {fileError && (
+              <div className="px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-600">
+                {fileError}
+              </div>
+            )}
 
             {/* Quick Actions */}
             {settingsLoaded && (
