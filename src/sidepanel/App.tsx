@@ -52,7 +52,7 @@ function App() {
     setEnableFunctionCalling(ai.enableFunctionCalling || false);
   }, [ai.enableFunctionCalling]);
 
-  // 快捷键：Ctrl+Shift+R 刷新页面内容
+  // 快捷键：Ctrl+Shift+R 刷新页面内容（sidepanel 内）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl+Shift+R 或 Cmd+Shift+R 刷新页面内容
@@ -66,6 +66,21 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [contextLoading, fetchPageContext]);
+
+  // 监听来自 content script 的刷新请求
+  useEffect(() => {
+    const handleMessage = (message: any) => {
+      if (message?.type === 'REFRESH_PAGE_CONTEXT') {
+        console.log('[Sidepanel] 收到刷新页面内容请求');
+        if (!contextLoading) {
+          fetchPageContext();
+        }
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => chrome.runtime.onMessage.removeListener(handleMessage);
   }, [contextLoading, fetchPageContext]);
 
   // 处理 Function Calling 开关切换

@@ -111,6 +111,25 @@ async function handleExecuteTool(message: ExecuteToolMessage, sendResponse: (res
   }
 }
 
+// 快捷键：Ctrl+Shift+R 刷新页面内容（通知 sidepanel）
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'R') {
+    e.preventDefault();
+    console.log(`${APP_NAME}: 快捷键触发刷新页面内容`);
+    
+    // 通知 sidepanel 刷新
+    chrome.runtime.sendMessage(
+      createMessage('REFRESH_PAGE_CONTEXT', {}),
+      () => {
+        // 忽略无接收者的错误（sidepanel 可能未打开）
+        if (chrome.runtime.lastError) {
+          // 静默忽略
+        }
+      }
+    );
+  }
+});
+
 // 页面卸载时清理
 window.addEventListener('beforeunload', () => {
   selectionHandler.destroy();

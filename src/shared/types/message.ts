@@ -27,7 +27,8 @@ export type MessageType =
   | 'LOAD_SETTINGS'           // 加载设置
   | 'SETTINGS_RESPONSE'       // 设置响应
   | 'TAKE_SCREENSHOT'         // 截图请求
-  | 'DOWNLOAD_FILE';          // 下载文件请求
+  | 'DOWNLOAD_FILE'           // 下载文件请求
+  | 'REFRESH_PAGE_CONTEXT';   // 通知 sidepanel 刷新页面内容
 
 export interface BaseMessage {
   type: MessageType;
