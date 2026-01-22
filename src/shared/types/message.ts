@@ -25,7 +25,9 @@ export type MessageType =
   | 'AUTOMATION_HISTORY_RESPONSE' // 自动化历史响应
   | 'SAVE_SETTINGS'           // 保存设置
   | 'LOAD_SETTINGS'           // 加载设置
-  | 'SETTINGS_RESPONSE';      // 设置响应
+  | 'SETTINGS_RESPONSE'       // 设置响应
+  | 'TAKE_SCREENSHOT'         // 截图请求
+  | 'DOWNLOAD_FILE';          // 下载文件请求
 
 export interface BaseMessage {
   type: MessageType;
@@ -174,6 +176,36 @@ export interface SettingsResponseMessage extends BaseMessage {
   payload: any;
 }
 
+export interface TakeScreenshotMessage extends BaseMessage {
+  type: 'TAKE_SCREENSHOT';
+  payload: {
+    screenshotType: 'visible' | 'fullpage';
+    format: 'png' | 'jpeg';
+    quality: number;
+    download: boolean;
+    filename: string;
+    elementRect?: { x: number; y: number; width: number; height: number };
+    pageInfo?: {
+      scrollHeight: number;
+      scrollWidth: number;
+      viewportHeight: number;
+      viewportWidth: number;
+      currentScrollY: number;
+      currentScrollX: number;
+    };
+  };
+}
+
+export interface DownloadFileMessage extends BaseMessage {
+  type: 'DOWNLOAD_FILE';
+  payload: {
+    url?: string;
+    content?: string;
+    filename?: string;
+    contentType?: string;
+  };
+}
+
 export type Message =
   | GetPageContextMessage
   | PageContextResponseMessage
@@ -193,7 +225,9 @@ export type Message =
   | AutomationHistoryResponseMessage
   | SaveSettingsMessage
   | LoadSettingsMessage
-  | SettingsResponseMessage;
+  | SettingsResponseMessage
+  | TakeScreenshotMessage
+  | DownloadFileMessage;
 
 /**
  * 聊天消息类型

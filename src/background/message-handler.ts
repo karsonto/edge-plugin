@@ -7,6 +7,7 @@ import { AIService } from './ai-service';
 import { storageManager } from './storage-manager';
 import { createMessage, generateMessageId } from '@/shared/utils/message-bridge';
 import { automationOrchestrator } from './automation-orchestrator';
+import { takeScreenshot, downloadFile, type ScreenshotOptions, type DownloadOptions } from './media-service';
 
 /**
  * 处理来自 content script 或 sidepanel 的消息
@@ -51,6 +52,14 @@ export async function handleMessage(
       case 'LOAD_SETTINGS':
         await handleLoadSettings(sendResponse);
         return false;
+
+      case 'TAKE_SCREENSHOT':
+        await handleTakeScreenshot(message as any, sender, sendResponse);
+        return true;
+
+      case 'DOWNLOAD_FILE':
+        await handleDownloadFile(message as any, sendResponse);
+        return true;
 
       default:
         console.warn('Unknown message type:', message.type);
@@ -213,4 +222,33 @@ async function handleLoadSettings(sendResponse: (response?: any) => void) {
   sendResponse(
     createMessage('SETTINGS_RESPONSE', config)
   );
+}
+
+/**
+ * 处理截图请求
+ */
+async function handleTakeScreenshot(
+  message: { payload: ScreenshotOptions },
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: any) => void
+) {
+  const tabId = sender.tab?.id;
+  if (!tabId) {
+    sendResponse({ ok: false, error: 'No tab ID' });
+    return;
+  }
+
+  const result = await takeScreenshot(tabId, message.payload);
+  sendResponse(result);
+}
+
+/**
+ * 处理下载请求
+ */
+async function handleDownloadFile(
+  message: { payload: DownloadOptions },
+  sendResponse: (response?: any) => void
+) {
+  const result = await downloadFile(message.payload);
+  sendResponse(result);
 }

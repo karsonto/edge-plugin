@@ -6,7 +6,9 @@
   "permissions": [
     "activeTab",
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "downloads",
+    "scripting"
   ],
   "host_permissions": [
     "https://*/*"

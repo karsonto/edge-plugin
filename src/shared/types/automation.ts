@@ -13,7 +13,15 @@ export type ToolName =
   | 'click'
   | 'type'
   | 'scroll'
-  | 'waitFor';
+  | 'waitFor'
+  // 新增工具
+  | 'select'
+  | 'check'
+  | 'hover'
+  | 'pressKey'
+  | 'getValue'
+  | 'screenshot'
+  | 'download';
 
 export type WaitForState = 'attached' | 'detached';
 

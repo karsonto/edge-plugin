@@ -505,6 +505,436 @@ function tool_waitFor(args: any): Promise<ToolResult<{ found: boolean }>> {
   });
 }
 
+// ============ 新增工具实现 ============
+
+/**
+ * select - 下拉框选择
+ * 支持原生 <select> 和常见 UI 框架（Ant Design、Element UI 等）
+ */
+async function tool_select(args: any): Promise<ToolResult<{ selected: string | null }>> {
+  const el = resolveTargetElement(args);
+  if (!el) return { ok: false, tool: 'select', error: 'Target element not found' };
+
+  const tag = el.tagName.toLowerCase();
+
+  // 情况1：原生 <select>
+  if (tag === 'select') {
+    const select = el as HTMLSelectElement;
+    const options = Array.from(select.options);
+    
+    let targetOption: HTMLOptionElement | undefined;
+    if (args.value !== undefined) {
+      targetOption = options.find(o => o.value === args.value);
+    } else if (args.text !== undefined) {
+      const wanted = String(args.text).toLowerCase();
+      targetOption = options.find(o => o.text.toLowerCase().includes(wanted));
+    } else if (typeof args.index === 'number') {
+      targetOption = options[args.index];
+    }
+    
+    if (!targetOption) return { ok: false, tool: 'select', error: 'Option not found' };
+    
+    showHighlight(el, 'click');
+    select.value = targetOption.value;
+    dispatchInputEvents(el);
+    await waitForDomStable();
+    return { ok: true, tool: 'select', data: { selected: targetOption.text }, observations: makeObservations() };
+  }
+
+  // 情况2：UI 框架下拉框（点击展开 → 选择选项）
+  showHighlight(el, 'click');
+  clickElement(el);
+  await waitForDomStable(1000, 200);
+  
+  // 查找并点击选项（通用策略：查找弹出层中的匹配文本）
+  const wanted = String(args.text || args.value || '').toLowerCase();
+  if (!wanted) return { ok: false, tool: 'select', error: 'Missing text or value to select' };
+
+  const dropdownSelectors = [
+    '.ant-select-dropdown:not(.ant-select-dropdown-hidden)',  // Ant Design
+    '.el-select-dropdown:not([style*="display: none"])',       // Element UI
+    '.v-menu__content',                                        // Vuetify
+    '[role="listbox"]',                                        // 通用 ARIA
+    '.dropdown-menu.show',                                     // Bootstrap
+    '.rc-virtual-list',                                        // rc-select
+  ];
+  
+  for (const dropSel of dropdownSelectors) {
+    const dropdown = document.querySelector(dropSel);
+    if (dropdown && isElementVisible(dropdown)) {
+      const items = dropdown.querySelectorAll('[role="option"], .ant-select-item, .el-select-dropdown__item, li, .rc-virtual-list-holder-inner > div');
+      for (const item of items) {
+        const itemText = (item.textContent || '').trim().toLowerCase();
+        if (itemText.includes(wanted) || wanted.includes(itemText)) {
+          showHighlight(item, 'click');
+          clickElement(item);
+          await waitForDomStable();
+          return { ok: true, tool: 'select', data: { selected: item.textContent?.trim() || null }, observations: makeObservations() };
+        }
+      }
+    }
+  }
+  
+  return { ok: false, tool: 'select', error: 'Dropdown option not found' };
+}
+
+/**
+ * check - 复选框/开关操作
+ * 支持原生 checkbox 和 UI 框架的 Switch 组件
+ */
+async function tool_check(args: any): Promise<ToolResult<{ checked: boolean }>> {
+  const el = resolveTargetElement(args);
+  if (!el) return { ok: false, tool: 'check', error: 'Target element not found' };
+
+  const input = el as HTMLInputElement;
+  const targetChecked = args.checked;
+
+  // 情况1：原生 checkbox
+  if (input.tagName.toLowerCase() === 'input' && input.type === 'checkbox') {
+    const currentChecked = input.checked;
+    if (targetChecked === undefined || currentChecked !== targetChecked) {
+      showHighlight(el, 'click');
+      clickElement(el);
+      await waitForDomStable();
+    }
+    return { ok: true, tool: 'check', data: { checked: input.checked }, observations: makeObservations() };
+  }
+
+  // 情况2：原生 radio
+  if (input.tagName.toLowerCase() === 'input' && input.type === 'radio') {
+    showHighlight(el, 'click');
+    clickElement(el);
+    await waitForDomStable();
+    return { ok: true, tool: 'check', data: { checked: input.checked }, observations: makeObservations() };
+  }
+
+  // 情况3：UI 框架 Switch（通常是 button[role=switch] 或带 aria-checked 的元素）
+  const ariaChecked = el.getAttribute('aria-checked');
+  if (ariaChecked !== null) {
+    const currentChecked = ariaChecked === 'true';
+    if (targetChecked === undefined || currentChecked !== targetChecked) {
+      showHighlight(el, 'click');
+      clickElement(el);
+      await waitForDomStable();
+    }
+    const newChecked = el.getAttribute('aria-checked') === 'true';
+    return { ok: true, tool: 'check', data: { checked: newChecked }, observations: makeObservations() };
+  }
+
+  // 情况4：通过 class 判断（Ant Design Switch 等）
+  const hasCheckedClass = el.classList.contains('ant-switch-checked') || 
+                          el.classList.contains('el-switch__core') ||
+                          el.classList.contains('is-checked');
+  const shouldClick = targetChecked === undefined || hasCheckedClass !== targetChecked;
+  
+  if (shouldClick) {
+    showHighlight(el, 'click');
+    clickElement(el);
+    await waitForDomStable();
+  }
+
+  const newHasCheckedClass = el.classList.contains('ant-switch-checked') || 
+                              el.classList.contains('is-checked') ||
+                              el.getAttribute('aria-checked') === 'true';
+  return { ok: true, tool: 'check', data: { checked: newHasCheckedClass }, observations: makeObservations() };
+}
+
+/**
+ * hover - 悬停操作
+ * 触发 hover 效果（展开菜单、显示 Tooltip 等）
+ */
+async function tool_hover(args: any): Promise<ToolResult<{ hovered: boolean }>> {
+  const el = resolveTargetElement(args);
+  if (!el) return { ok: false, tool: 'hover', error: 'Target element not found' };
+
+  const duration = typeof args.duration === 'number' ? args.duration : 300;
+  
+  // 滚动到可见
+  try {
+    (el as HTMLElement).scrollIntoView?.({ block: 'center', inline: 'center' });
+  } catch {}
+  
+  showHighlight(el, 'click');
+  
+  // 触发悬停事件序列
+  const rect = (el as HTMLElement).getBoundingClientRect();
+  const clientX = rect.left + rect.width / 2;
+  const clientY = rect.top + rect.height / 2;
+  
+  el.dispatchEvent(new MouseEvent('mouseenter', { 
+    bubbles: true, 
+    cancelable: true,
+    clientX,
+    clientY,
+    view: window
+  }));
+  el.dispatchEvent(new MouseEvent('mouseover', { 
+    bubbles: true, 
+    cancelable: true,
+    clientX,
+    clientY,
+    view: window
+  }));
+  el.dispatchEvent(new MouseEvent('mousemove', { 
+    bubbles: true, 
+    cancelable: true,
+    clientX,
+    clientY,
+    view: window
+  }));
+  
+  // 等待悬停效果出现
+  await new Promise(r => setTimeout(r, duration));
+  await waitForDomStable();
+  
+  return { ok: true, tool: 'hover', data: { hovered: true }, observations: makeObservations() };
+}
+
+/**
+ * pressKey - 键盘按键
+ * 支持 Enter、Escape、Tab、方向键等
+ */
+function tool_pressKey(args: any): ToolResult<{ pressed: boolean }> {
+  const key = args.key;
+  if (!key) return { ok: false, tool: 'pressKey', error: 'Missing key' };
+  
+  const el = resolveTargetElement(args) || document.activeElement || document.body;
+  const mods = args.modifiers || {};
+  
+  // 映射按键名称到 code
+  const keyCodeMap: Record<string, string> = {
+    'Enter': 'Enter',
+    'Escape': 'Escape',
+    'Tab': 'Tab',
+    'ArrowDown': 'ArrowDown',
+    'ArrowUp': 'ArrowUp',
+    'ArrowLeft': 'ArrowLeft',
+    'ArrowRight': 'ArrowRight',
+    'Backspace': 'Backspace',
+    'Delete': 'Delete',
+    'Space': 'Space',
+  };
+  
+  const code = keyCodeMap[key] || key;
+  const keyValue = key === 'Space' ? ' ' : key;
+  
+  const eventInit: KeyboardEventInit = {
+    key: keyValue,
+    code,
+    bubbles: true,
+    cancelable: true,
+    ctrlKey: !!mods.ctrl,
+    shiftKey: !!mods.shift,
+    altKey: !!mods.alt,
+    metaKey: !!mods.meta,
+  };
+  
+  showHighlight(el, 'type');
+  
+  el.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+  el.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+  el.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+  
+  return { ok: true, tool: 'pressKey', data: { pressed: true }, observations: makeObservations() };
+}
+
+/**
+ * getValue - 获取元素的值或属性
+ */
+function tool_getValue(args: any): ToolResult<{ value?: string; text?: string; checked?: boolean; attribute?: string }> {
+  const el = resolveTargetElement(args);
+  if (!el) return { ok: false, tool: 'getValue', error: 'Target element not found' };
+  
+  const attr = args.attribute;
+  
+  // 如果指定了属性名
+  if (attr) {
+    const value = el.getAttribute(attr);
+    return { ok: true, tool: 'getValue', data: { attribute: attr, value: value || undefined } };
+  }
+  
+  // 获取表单值或文本
+  const input = el as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  const tag = el.tagName.toLowerCase();
+  
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+    // checkbox/radio 特殊处理
+    if (tag === 'input' && ((input as HTMLInputElement).type === 'checkbox' || (input as HTMLInputElement).type === 'radio')) {
+      return { ok: true, tool: 'getValue', data: { value: input.value, checked: (input as HTMLInputElement).checked } };
+    }
+    return { ok: true, tool: 'getValue', data: { value: input.value } };
+  }
+  
+  // 普通元素返回文本内容
+  const text = ((el as HTMLElement).innerText || el.textContent || '').trim();
+  return { ok: true, tool: 'getValue', data: { text } };
+}
+
+/**
+ * screenshot - 截图
+ * 需要通过消息发送到 background 执行
+ */
+async function tool_screenshot(args: any): Promise<ToolResult<{ dataUrl?: string; downloaded?: boolean; filename?: string }>> {
+  const type = args.type || 'visible';
+  const format = args.format || 'png';
+  const quality = typeof args.quality === 'number' ? args.quality : 90;
+  const download = args.download !== false;
+  const filename = args.filename || `screenshot_${Date.now()}`;
+  
+  // 如果指定了元素，获取元素信息
+  let elementRect: { x: number; y: number; width: number; height: number } | undefined;
+  if (args.selector || args.elementId) {
+    const el = resolveTargetElement(args);
+    if (el) {
+      const rect = (el as HTMLElement).getBoundingClientRect();
+      elementRect = {
+        x: rect.x + window.scrollX,
+        y: rect.y + window.scrollY,
+        width: rect.width,
+        height: rect.height
+      };
+      // 滚动到元素可见
+      (el as HTMLElement).scrollIntoView?.({ block: 'center', inline: 'center' });
+      await waitForDomStable();
+    }
+  }
+  
+  // 收集页面信息用于全页面截图
+  const pageInfo = {
+    scrollHeight: document.documentElement.scrollHeight,
+    scrollWidth: document.documentElement.scrollWidth,
+    viewportHeight: window.innerHeight,
+    viewportWidth: window.innerWidth,
+    currentScrollY: window.scrollY,
+    currentScrollX: window.scrollX,
+  };
+  
+  // 发送消息到 background 执行截图
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(
+      {
+        type: 'TAKE_SCREENSHOT',
+        payload: {
+          screenshotType: type,
+          format,
+          quality,
+          download,
+          filename,
+          elementRect,
+          pageInfo,
+        }
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, tool: 'screenshot', error: chrome.runtime.lastError.message });
+        } else if (response?.ok) {
+          resolve({ 
+            ok: true, 
+            tool: 'screenshot', 
+            data: { 
+              dataUrl: response.dataUrl,
+              downloaded: response.downloaded,
+              filename: response.filename
+            },
+            observations: makeObservations()
+          });
+        } else {
+          resolve({ ok: false, tool: 'screenshot', error: response?.error || 'Screenshot failed' });
+        }
+      }
+    );
+  });
+}
+
+/**
+ * download - 下载文件
+ * 需要通过消息发送到 background 执行
+ */
+async function tool_download(args: any): Promise<ToolResult<{ downloadId?: number; filename?: string; url?: string }>> {
+  let downloadUrl: string | undefined = args.url;
+  let content: string | undefined = args.content;
+  let filename: string | undefined = args.filename;
+  const contentType = args.contentType || 'text/plain';
+  
+  // 如果指定了元素，获取其资源 URL
+  if (args.elementId || args.selector) {
+    const el = resolveTargetElement(args);
+    if (!el) return { ok: false, tool: 'download', error: 'Element not found' };
+    
+    const tag = el.tagName.toLowerCase();
+    
+    if (tag === 'img') {
+      downloadUrl = (el as HTMLImageElement).src;
+      if (!filename) {
+        const urlParts = downloadUrl.split('/');
+        filename = urlParts[urlParts.length - 1].split('?')[0] || `image_${Date.now()}.png`;
+      }
+    } else if (tag === 'a') {
+      downloadUrl = (el as HTMLAnchorElement).href;
+      if (!filename) {
+        filename = (el as HTMLAnchorElement).download || 
+                   downloadUrl.split('/').pop()?.split('?')[0] || 
+                   `download_${Date.now()}`;
+      }
+    } else if (tag === 'video') {
+      downloadUrl = (el as HTMLVideoElement).src || (el as HTMLVideoElement).currentSrc;
+      if (!filename) filename = `video_${Date.now()}.mp4`;
+    } else if (tag === 'audio') {
+      downloadUrl = (el as HTMLAudioElement).src || (el as HTMLAudioElement).currentSrc;
+      if (!filename) filename = `audio_${Date.now()}.mp3`;
+    } else {
+      // 尝试获取背景图
+      const bgImage = getComputedStyle(el).backgroundImage;
+      const match = bgImage.match(/url\(["']?(.+?)["']?\)/);
+      if (match) {
+        downloadUrl = match[1];
+        if (!filename) filename = `background_${Date.now()}.png`;
+      }
+    }
+    
+    if (!downloadUrl) {
+      return { ok: false, tool: 'download', error: 'No downloadable resource found in element' };
+    }
+  }
+  
+  if (!downloadUrl && !content) {
+    return { ok: false, tool: 'download', error: 'Must provide url, content, or element' };
+  }
+  
+  // 发送消息到 background 执行下载
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(
+      {
+        type: 'DOWNLOAD_FILE',
+        payload: {
+          url: downloadUrl,
+          content,
+          filename,
+          contentType,
+        }
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, tool: 'download', error: chrome.runtime.lastError.message });
+        } else if (response?.ok) {
+          resolve({ 
+            ok: true, 
+            tool: 'download', 
+            data: { 
+              downloadId: response.downloadId,
+              filename: response.filename,
+              url: downloadUrl
+            },
+            observations: makeObservations()
+          });
+        } else {
+          resolve({ ok: false, tool: 'download', error: response?.error || 'Download failed' });
+        }
+      }
+    );
+  });
+}
+
 export async function executeTool(call: ToolCall): Promise<ToolResult> {
   const tool = call.tool as ToolName;
   const args = call.args || {};
@@ -527,6 +957,21 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
         return tool_scroll(args);
       case 'waitFor':
         return await tool_waitFor(args);
+      // 新增工具
+      case 'select':
+        return await tool_select(args);
+      case 'check':
+        return await tool_check(args);
+      case 'hover':
+        return await tool_hover(args);
+      case 'pressKey':
+        return tool_pressKey(args);
+      case 'getValue':
+        return tool_getValue(args);
+      case 'screenshot':
+        return await tool_screenshot(args);
+      case 'download':
+        return await tool_download(args);
       default:
         return { ok: false, tool: tool as ToolName, error: `Unknown tool: ${String(tool)}` };
     }

@@ -183,6 +183,227 @@ export function getToolDefinitions() {
           required: ['selector']
         }
       }
+    },
+    // ============ 新增工具 ============
+    {
+      type: 'function',
+      function: {
+        name: 'select',
+        description: '从下拉选择框中选择选项，支持原生 <select> 和常见 UI 框架（Ant Design、Element UI 等）',
+        parameters: {
+          type: 'object',
+          properties: {
+            elementId: {
+              type: 'string',
+              description: '元素 ID（通过 query/findByText 获取）'
+            },
+            selector: {
+              type: 'string',
+              description: 'CSS 选择器'
+            },
+            value: {
+              type: 'string',
+              description: '选项的 value 属性值'
+            },
+            text: {
+              type: 'string',
+              description: '选项的显示文本（模糊匹配）'
+            },
+            index: {
+              type: 'number',
+              description: '选项索引（从 0 开始）'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'check',
+        description: '勾选或取消勾选复选框/开关，支持原生 checkbox 和 UI 框架的 Switch 组件',
+        parameters: {
+          type: 'object',
+          properties: {
+            elementId: {
+              type: 'string',
+              description: '元素 ID'
+            },
+            selector: {
+              type: 'string',
+              description: 'CSS 选择器'
+            },
+            checked: {
+              type: 'boolean',
+              description: '目标状态：true=勾选，false=取消勾选。不传则切换当前状态'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'hover',
+        description: '鼠标悬停在元素上，触发 hover 效果（展开菜单、显示 Tooltip 等）',
+        parameters: {
+          type: 'object',
+          properties: {
+            elementId: {
+              type: 'string',
+              description: '元素 ID'
+            },
+            selector: {
+              type: 'string',
+              description: 'CSS 选择器'
+            },
+            duration: {
+              type: 'number',
+              description: '悬停等待时长（毫秒），默认 300'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'pressKey',
+        description: '模拟键盘按键，支持 Enter、Escape、Tab、方向键等',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: {
+              type: 'string',
+              enum: ['Enter', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete', 'Space'],
+              description: '按键名称'
+            },
+            elementId: {
+              type: 'string',
+              description: '目标元素 ID（可选，默认当前焦点元素）'
+            },
+            selector: {
+              type: 'string',
+              description: 'CSS 选择器'
+            },
+            modifiers: {
+              type: 'object',
+              description: '修饰键',
+              properties: {
+                ctrl: { type: 'boolean' },
+                shift: { type: 'boolean' },
+                alt: { type: 'boolean' }
+              }
+            }
+          },
+          required: ['key']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'getValue',
+        description: '获取元素的值或属性，用于读取表单当前值、链接地址、data 属性等',
+        parameters: {
+          type: 'object',
+          properties: {
+            elementId: {
+              type: 'string',
+              description: '元素 ID'
+            },
+            selector: {
+              type: 'string',
+              description: 'CSS 选择器'
+            },
+            attribute: {
+              type: 'string',
+              description: '要获取的属性名（如 href、src、data-id）。不传则获取 value/textContent'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'screenshot',
+        description: '截取网页截图，支持可见区域截图或全页面长截图',
+        parameters: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['visible', 'fullpage'],
+              description: '截图类型：visible=当前可见区域，fullpage=全页面长截图。默认 visible'
+            },
+            selector: {
+              type: 'string',
+              description: '只截取指定元素（可选）'
+            },
+            format: {
+              type: 'string',
+              enum: ['png', 'jpeg'],
+              description: '图片格式，默认 png'
+            },
+            quality: {
+              type: 'number',
+              description: 'JPEG 质量 0-100，默认 90'
+            },
+            download: {
+              type: 'boolean',
+              description: '是否自动下载到本地，默认 true'
+            },
+            filename: {
+              type: 'string',
+              description: '下载文件名（不含扩展名）'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'download',
+        description: '下载文件到本地：支持下载网页图片、链接资源、或将文本/数据保存为文件',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: '要下载的资源 URL（图片、文件等）'
+            },
+            content: {
+              type: 'string',
+              description: '要保存的文本内容（与 url 二选一）'
+            },
+            filename: {
+              type: 'string',
+              description: '保存的文件名（含扩展名），如 "report.txt"、"data.json"'
+            },
+            contentType: {
+              type: 'string',
+              enum: ['text/plain', 'application/json', 'text/csv', 'text/markdown', 'text/html'],
+              description: '内容类型（仅当提供 content 时使用），默认 text/plain'
+            },
+            elementId: {
+              type: 'string',
+              description: '下载指定元素的图片（如 <img> 的 src）'
+            },
+            selector: {
+              type: 'string',
+              description: 'CSS 选择器，下载匹配元素的图片'
+            }
+          },
+          required: []
+        }
+      }
     }
   ];
 }
@@ -208,6 +429,13 @@ export function toolSpecText(): string {
     '- type: { "elementId"?: string, "selector"?: string, "text": string, "clear"?: boolean }',
     '- scroll: { "amount"?: number, "elementId"?: string, "selector"?: string }',
     '- waitFor: { "selector": string, "state"?: "attached"|"detached", "timeout"?: number }',
+    '- select: { "elementId"?: string, "selector"?: string, "value"?: string, "text"?: string, "index"?: number }',
+    '- check: { "elementId"?: string, "selector"?: string, "checked"?: boolean }',
+    '- hover: { "elementId"?: string, "selector"?: string, "duration"?: number }',
+    '- pressKey: { "key": string, "elementId"?: string, "selector"?: string, "modifiers"?: { "ctrl"?: boolean, "shift"?: boolean, "alt"?: boolean } }',
+    '- getValue: { "elementId"?: string, "selector"?: string, "attribute"?: string }',
+    '- screenshot: { "type"?: "visible"|"fullpage", "selector"?: string, "format"?: "png"|"jpeg", "quality"?: number, "download"?: boolean, "filename"?: string }',
+    '- download: { "url"?: string, "content"?: string, "filename"?: string, "contentType"?: string, "elementId"?: string, "selector"?: string }',
     '',
     'Rules:',
     '- Prefer elementId returned by query/findByText over raw selectors.',
@@ -246,6 +474,14 @@ const TOOL_SET: Set<ToolName> = new Set([
   'type',
   'scroll',
   'waitFor',
+  // 新增工具
+  'select',
+  'check',
+  'hover',
+  'pressKey',
+  'getValue',
+  'screenshot',
+  'download',
 ]);
 
 export function validateToolCall(call: ToolCall): { ok: true } | { ok: false; reason: string } {
@@ -265,6 +501,16 @@ export function validateToolCall(call: ToolCall): { ok: true } | { ok: false; re
   if (tool === 'type' && typeof args?.text !== 'string') return { ok: false, reason: 'type requires text string' };
   if (tool === 'waitFor' && !args?.selector) return { ok: false, reason: 'waitFor requires selector' };
   if (tool === 'click' && !args?.elementId && !args?.selector) return { ok: false, reason: 'click requires elementId or selector' };
+  
+  // 新增工具验证
+  if (tool === 'select' && !args?.elementId && !args?.selector) return { ok: false, reason: 'select requires elementId or selector' };
+  if (tool === 'check' && !args?.elementId && !args?.selector) return { ok: false, reason: 'check requires elementId or selector' };
+  if (tool === 'hover' && !args?.elementId && !args?.selector) return { ok: false, reason: 'hover requires elementId or selector' };
+  if (tool === 'pressKey' && !args?.key) return { ok: false, reason: 'pressKey requires key' };
+  if (tool === 'getValue' && !args?.elementId && !args?.selector) return { ok: false, reason: 'getValue requires elementId or selector' };
+  if (tool === 'download' && !args?.url && !args?.content && !args?.elementId && !args?.selector) {
+    return { ok: false, reason: 'download requires url, content, elementId, or selector' };
+  }
 
   return { ok: true };
 }
