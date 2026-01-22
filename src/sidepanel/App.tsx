@@ -26,7 +26,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
 
   // Hooks
-  const { messages, isLoading, error, sendMessage, clearMessages } = useChat();
+  const { messages, isLoading, error, sendMessage, clearMessages, stop } = useChat();
   const {
     quickActions,
     ai,
@@ -422,6 +422,7 @@ function App() {
                 inputValue={inputValue}
                 onInputChange={setInputValue}
                 onSend={handleSend}
+                onStop={stop}
               />
             </div>
           </div>

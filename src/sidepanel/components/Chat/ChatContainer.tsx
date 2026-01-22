@@ -19,6 +19,7 @@ interface ChatContainerProps {
   inputValue: string;
   onInputChange: (value: string) => void;
   onSend: () => void;
+  onStop?: () => void;
 }
 
 function EmptyState() {
@@ -42,6 +43,7 @@ export function ChatContainer({
   inputValue,
   onInputChange,
   onSend,
+  onStop,
 }: ChatContainerProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -90,7 +92,9 @@ export function ChatContainer({
         value={inputValue}
         onChange={onInputChange}
         onSend={onSend}
+        onStop={onStop}
         disabled={isLoading}
+        isLoading={isLoading}
       />
     </div>
   );

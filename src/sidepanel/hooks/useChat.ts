@@ -22,6 +22,7 @@ interface ChatStore {
   sendMessage: (content: string, settings: AIConfig, pageContext?: PageContext) => Promise<void>;
   clearMessages: () => void;
   addMessage: (message: Message) => void;
+  stop: () => void;  // 停止当前执行
 }
 
 // 辅助函数：通过 content script 执行工具
@@ -57,6 +58,10 @@ async function executeToolInContent(call: ToolCall): Promise<ToolResult> {
 }
 
 export const useChat = create<ChatStore>((set, get) => {
+  // 停止标志和 AbortController
+  let shouldStop = false;
+  let currentAbortController: AbortController | null = null;
+
   // 监听来自 background 的 AI 响应（仅用于流式模式）
   onMessage((message) => {
     const { currentStreamingId, messages } = get();
@@ -204,6 +209,8 @@ export const useChat = create<ChatStore>((set, get) => {
     aiConfig: AIConfig,
     pageContent?: string  // 已经去重过的页面内容
   ) => {
+    // 重置停止标志
+    shouldStop = false;
     const aiService = new AIService(aiConfig);
     const tools = getToolDefinitions();
     const MAX_RETRIES = 5;
@@ -247,6 +254,22 @@ export const useChat = create<ChatStore>((set, get) => {
     let lastToolResults: string[] = [];
 
     while (loopCount < MAX_LOOPS) {
+      // 检查是否被停止
+      if (shouldStop) {
+        console.log('[Function Calling] 用户中断执行');
+        logFC.end(lastToolResults, loopCount);
+        set({
+          isLoading: false,
+          messages: [...get().messages, {
+            id: generateMessageId(),
+            role: 'assistant',
+            content: '操作已中断。',
+            timestamp: Date.now()
+          }]
+        });
+        return;
+      }
+
       loopCount++;
       logFC.loop(loopCount, MAX_LOOPS);
 
@@ -442,6 +465,10 @@ export const useChat = create<ChatStore>((set, get) => {
     settings: AIConfig,
     context?: string
   ) => {
+    // 重置停止标志
+    shouldStop = false;
+    currentAbortController = new AbortController();
+    
     try {
       // 准备发送给 AI 的消息
       const chatMessages: ChatMessage[] = get().messages.map(msg => ({
@@ -482,6 +509,19 @@ export const useChat = create<ChatStore>((set, get) => {
         throw new Error(response?.payload?.error || 'AI 请求失败');
       }
     } catch (error) {
+      // 如果是用户中断，不显示错误
+      if (shouldStop) {
+        set({
+          isLoading: false,
+          messages: [...get().messages, {
+            id: generateMessageId(),
+            role: 'assistant',
+            content: '操作已中断。',
+            timestamp: Date.now()
+          }]
+        });
+        return;
+      }
       throw error;
     }
   };
@@ -540,6 +580,19 @@ export const useChat = create<ChatStore>((set, get) => {
           );
         }
       } catch (error) {
+        // 如果是用户中断，不显示错误
+        if (shouldStop) {
+          set({
+            isLoading: false,
+            messages: [...get().messages, {
+              id: generateMessageId(),
+              role: 'assistant',
+              content: '操作已中断。',
+              timestamp: Date.now()
+            }]
+          });
+          return;
+        }
         set({
           error: error instanceof Error ? error.message : 'Unknown error',
           isLoading: false,
@@ -553,6 +606,15 @@ export const useChat = create<ChatStore>((set, get) => {
 
     addMessage: (message: Message) => {
       set({ messages: [...get().messages, message] });
+    },
+
+    stop: () => {
+      shouldStop = true;
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+      }
+      set({ isLoading: false });
     },
   };
 });
