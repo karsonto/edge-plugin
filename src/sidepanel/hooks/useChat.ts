@@ -125,8 +125,11 @@ export const useChat = create<ChatStore>((set, get) => {
   ) => {
     const aiService = new AIService(aiConfig);
     const tools = getToolDefinitions();
-    const MAX_RETRIES = 5;
-    const MAX_LOOPS = 15;
+    const MAX_RETRIES = 3;
+    const MAX_LOOPS = 10;
+
+    // 终结性工具：执行后应该直接给出结果
+    const TERMINAL_TOOLS = ['download', 'screenshot'];
 
     // 构建消息历史
     let apiMessages: ChatMessage[] = get().messages.map(msg => ({
@@ -136,26 +139,41 @@ export const useChat = create<ChatStore>((set, get) => {
       timestamp: msg.timestamp,
     }));
     
-    // 添加 system context（如果有页面上下文）
+    // 添加 system prompt 指导 AI 行为
+    apiMessages.unshift({
+      role: 'system',
+      content: `你是一个浏览器自动化助手。规则：
+1. 完成用户请求后，必须用自然语言回复用户（不要继续调用工具）
+2. 如果工具执行成功（如下载、截图），直接告诉用户结果
+3. 不要重复调用同一个工具
+4. 每次最多调用 1-2 个工具`,
+      timestamp: Date.now()
+    });
+
+    // 添加页面上下文（如果有）
     if (pageContext) {
-      apiMessages.unshift({
+      apiMessages.push({
         role: 'system',
-        content: `当前页面内容：\n${pageContext.slice(0, 8000)}`,
+        content: `当前页面内容：\n${pageContext.slice(0, 6000)}`,
         timestamp: Date.now()
       });
     }
 
     let loopCount = 0;
+    let lastToolResults: string[] = [];
 
     while (loopCount < MAX_LOOPS) {
       loopCount++;
       console.log(`[Function Calling] 循环 ${loopCount}/${MAX_LOOPS}`);
 
       try {
+        // 如果已经执行过终结性工具，强制 AI 返回文本
+        const shouldForceResponse = lastToolResults.some(t => TERMINAL_TOOLS.includes(t));
+        
         // 调用 AI
         const response = await aiService.chat(apiMessages, {
-          tools,
-          tool_choice: 'auto'
+          tools: shouldForceResponse ? undefined : tools,
+          tool_choice: shouldForceResponse ? undefined : 'auto'
         });
 
         // 情况 1：AI 返回最终文本答案
@@ -182,7 +200,7 @@ export const useChat = create<ChatStore>((set, get) => {
           const assistantMessage: ChatMessage = {
             id: generateMessageId(),
             role: 'assistant',
-            content: null,
+            content: response.content || null,
             tool_calls: response.tool_calls,
             timestamp: Date.now()
           };
@@ -191,7 +209,13 @@ export const useChat = create<ChatStore>((set, get) => {
           // 执行每个工具调用
           for (const toolCall of response.tool_calls) {
             const toolName = toolCall.function.name;
-            const toolArgs = JSON.parse(toolCall.function.arguments);
+            let toolArgs: Record<string, any> = {};
+            
+            try {
+              toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+            } catch (e) {
+              console.warn(`[Function Calling] 解析工具参数失败: ${toolCall.function.arguments}`);
+            }
 
             console.log(`[Function Calling] 执行工具: ${toolName}`, toolArgs);
 
@@ -203,7 +227,10 @@ export const useChat = create<ChatStore>((set, get) => {
 
             console.log(`[Function Calling] 工具结果:`, toolResult);
 
-            // 将工具结果添加到 API 消息历史（但不添加到 UI）
+            // 记录已执行的工具
+            lastToolResults.push(toolName);
+
+            // 将工具结果添加到 API 消息历史
             const toolMessage: ChatMessage = {
               id: generateMessageId(),
               role: 'tool',
@@ -213,13 +240,42 @@ export const useChat = create<ChatStore>((set, get) => {
               timestamp: Date.now()
             };
             apiMessages.push(toolMessage);
+
+            // 如果是终结性工具且执行成功，添加提示让 AI 返回结果
+            if (TERMINAL_TOOLS.includes(toolName) && toolResult.ok) {
+              apiMessages.push({
+                role: 'system',
+                content: `工具 ${toolName} 已成功执行。请用自然语言告诉用户结果，不要再调用工具。`,
+                timestamp: Date.now()
+              });
+            }
           }
 
           // 继续循环，让 AI 基于工具结果决定下一步
           continue;
         }
 
-        // 异常情况：既没有 content 也没有 tool_calls
+        // 情况 3：既没有 content 也没有 tool_calls，尝试强制获取回复
+        console.warn('[Function Calling] AI 未返回有效响应，尝试强制获取回复');
+        const forceResponse = await aiService.chat([
+          ...apiMessages,
+          { role: 'user', content: '请用自然语言回复用户', timestamp: Date.now() }
+        ]);
+        
+        if (forceResponse.content) {
+          const assistantMessage: Message = {
+            id: generateMessageId(),
+            role: 'assistant',
+            content: forceResponse.content,
+            timestamp: Date.now()
+          };
+          set({
+            messages: [...get().messages, assistantMessage],
+            isLoading: false
+          });
+          return;
+        }
+
         throw new Error('AI 未返回有效响应');
 
       } catch (error) {
@@ -228,8 +284,20 @@ export const useChat = create<ChatStore>((set, get) => {
       }
     }
 
-    // 超过最大循环次数
-    throw new Error('执行超时：工具调用次数超过限制');
+    // 超过最大循环次数，但尝试给出一个回复
+    console.warn('[Function Calling] 达到最大循环次数，生成默认回复');
+    const defaultMessage: Message = {
+      id: generateMessageId(),
+      role: 'assistant',
+      content: lastToolResults.length > 0 
+        ? `已执行操作：${lastToolResults.join('、')}。如果有其他问题，请继续提问。`
+        : '抱歉，操作未能完成。请重试或简化您的请求。',
+      timestamp: Date.now()
+    };
+    set({
+      messages: [...get().messages, defaultMessage],
+      isLoading: false
+    });
   };
 
   // 带重试的工具执行
