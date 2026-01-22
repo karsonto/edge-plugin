@@ -332,7 +332,7 @@ export function getToolDefinitions() {
       type: 'function',
       function: {
         name: 'screenshot',
-        description: '截取网页截图，支持可见区域截图或全页面长截图',
+        description: '截取网页的视觉截图保存为图片。仅用于保存页面外观/布局的图像，不要用于保存文本内容。如果用户需要保存文字、回答、文档内容，请使用 download 工具',
         parameters: {
           type: 'object',
           properties: {
@@ -354,13 +354,13 @@ export function getToolDefinitions() {
               type: 'number',
               description: 'JPEG 质量 0-100，默认 90'
             },
-            download: {
+            saveToLocal: {
               type: 'boolean',
-              description: '是否自动下载到本地，默认 true'
+              description: '是否保存到本地，默认 true'
             },
             filename: {
               type: 'string',
-              description: '下载文件名（不含扩展名）'
+              description: '文件名（不含扩展名）'
             }
           },
           required: []
@@ -371,34 +371,34 @@ export function getToolDefinitions() {
       type: 'function',
       function: {
         name: 'download',
-        description: '下载文件到本地：支持下载网页图片、链接资源、或将文本/数据保存为文件',
+        description: '保存内容为文件并下载到本地。【重要】当用户要求"保存内容"、"下载回答"、"导出文本"、"保存为文件"时，必须使用此工具。支持：1) 保存 AI 生成的文本/回答 2) 保存网页文字内容 3) 下载网页上的图片资源',
         parameters: {
           type: 'object',
           properties: {
-            url: {
-              type: 'string',
-              description: '要下载的资源 URL（图片、文件等）'
-            },
             content: {
               type: 'string',
-              description: '要保存的文本内容（与 url 二选一）'
+              description: '【推荐】要保存的文本内容。用于保存 AI 回答、网页文字等'
+            },
+            url: {
+              type: 'string',
+              description: '要下载的资源 URL（用于下载图片、文件等网络资源）'
             },
             filename: {
               type: 'string',
-              description: '保存的文件名（含扩展名），如 "report.txt"、"data.json"'
+              description: '保存的文件名（含扩展名），如 "summary.txt"、"data.json"、"report.md"'
             },
             contentType: {
               type: 'string',
               enum: ['text/plain', 'application/json', 'text/csv', 'text/markdown', 'text/html'],
-              description: '内容类型（仅当提供 content 时使用），默认 text/plain'
+              description: '内容类型，默认 text/plain。markdown 内容建议用 text/markdown'
             },
             elementId: {
               type: 'string',
-              description: '下载指定元素的图片（如 <img> 的 src）'
+              description: '下载指定元素的资源（如 <img> 的图片）'
             },
             selector: {
               type: 'string',
-              description: 'CSS 选择器，下载匹配元素的图片'
+              description: 'CSS 选择器，下载匹配元素的资源'
             }
           },
           required: []

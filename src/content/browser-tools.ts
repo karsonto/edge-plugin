@@ -778,7 +778,8 @@ async function tool_screenshot(args: any): Promise<ToolResult<{ dataUrl?: string
   const type = args.type || 'visible';
   const format = args.format || 'png';
   const quality = typeof args.quality === 'number' ? args.quality : 90;
-  const download = args.download !== false;
+  // 支持新旧参数名：saveToLocal (新) 和 download (旧)
+  const saveToLocal = args.saveToLocal !== false && args.download !== false;
   const filename = args.filename || `screenshot_${Date.now()}`;
   
   // 如果指定了元素，获取元素信息
@@ -818,7 +819,7 @@ async function tool_screenshot(args: any): Promise<ToolResult<{ dataUrl?: string
           screenshotType: type,
           format,
           quality,
-          download,
+          download: saveToLocal,
           filename,
           elementRect,
           pageInfo,
