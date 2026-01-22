@@ -205,7 +205,7 @@ export const useChat = create<ChatStore>((set, get) => {
   ) => {
     const aiService = new AIService(aiConfig);
     const tools = getToolDefinitions();
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 5;
     const MAX_LOOPS = 10;
 
     // 终结性工具：执行后应该直接给出结果
