@@ -79,7 +79,8 @@ function App() {
 
     // 传递完整的 aiConfig（包含 enableFunctionCalling）
     const aiConfigWithFC = { ...ai, enableFunctionCalling };
-    sendMessage(inputValue, aiConfigWithFC, includePageContext ? pageContext?.content : undefined);
+    // 传入完整 pageContext 对象，由 useChat 内部判断是否需要去重
+    sendMessage(inputValue, aiConfigWithFC, includePageContext ? pageContext ?? undefined : undefined);
     setInputValue('');
   };
 
@@ -112,7 +113,8 @@ function App() {
     // 不预填输入框：快捷操作直接发送，不占用用户输入区
     setInputValue('');
     const aiConfigWithFC = { ...ai, enableFunctionCalling };
-    sendMessage(prompt, aiConfigWithFC, pageContext.content);
+    // 传入完整 pageContext 对象，由 useChat 内部判断是否需要去重
+    sendMessage(prompt, aiConfigWithFC, pageContext);
   };
 
   // 处理刷新页面内容

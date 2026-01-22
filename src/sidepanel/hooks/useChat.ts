@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AIConfig, ChatMessage, ToolCall, ToolResult } from '@/shared/types';
+import type { AIConfig, ChatMessage, PageContext, ToolCall, ToolResult } from '@/shared/types';
 import { sendToBackground, createMessage, onMessage, generateMessageId, truncateText } from '@/shared/utils';
 import { getToolDefinitions } from '@/background/automation-model';
 import { AIService } from '@/background/ai-service';
@@ -17,8 +17,9 @@ interface ChatStore {
   isLoading: boolean;
   error: string | null;
   currentStreamingId: string | null;
+  lastPageUrl: string | null;  // 记录已发送过的页面 URL，避免重复传入
   
-  sendMessage: (content: string, settings: AIConfig, context?: string) => Promise<void>;
+  sendMessage: (content: string, settings: AIConfig, pageContext?: PageContext) => Promise<void>;
   clearMessages: () => void;
   addMessage: (message: Message) => void;
 }
@@ -201,7 +202,7 @@ export const useChat = create<ChatStore>((set, get) => {
   const handleFunctionCallingMode = async (
     _userMessage: Message,
     aiConfig: AIConfig,
-    pageContext?: string
+    pageContent?: string  // 已经去重过的页面内容
   ) => {
     const aiService = new AIService(aiConfig);
     const tools = getToolDefinitions();
@@ -233,11 +234,11 @@ export const useChat = create<ChatStore>((set, get) => {
       timestamp: Date.now()
     });
 
-    // 添加页面上下文（如果有）
-    if (pageContext) {
+    // 添加页面上下文（如果有，已经过去重处理）
+    if (pageContent) {
       apiMessages.push({
         role: 'system',
-        content: `当前页面内容：\n${pageContext.slice(0, 6000)}`,
+        content: `当前页面内容：\n${pageContent}`,
         timestamp: Date.now()
       });
     }
@@ -490,8 +491,9 @@ export const useChat = create<ChatStore>((set, get) => {
     isLoading: false,
     error: null,
     currentStreamingId: null,
+    lastPageUrl: null,
 
-    sendMessage: async (content: string, settings: AIConfig, context?: string) => {
+    sendMessage: async (content: string, settings: AIConfig, pageContext?: PageContext) => {
       if (!content.trim()) return;
 
       const userMessage: Message = {
@@ -500,6 +502,19 @@ export const useChat = create<ChatStore>((set, get) => {
         content: content.trim(),
         timestamp: Date.now(),
       };
+
+      // 判断是否需要传入页面内容（URL 去重）
+      const { lastPageUrl } = get();
+      const currentUrl = pageContext?.url;
+      const shouldIncludeContent = pageContext && currentUrl !== lastPageUrl;
+      
+      // 如果需要传入新内容，更新 lastPageUrl
+      if (shouldIncludeContent && currentUrl) {
+        set({ lastPageUrl: currentUrl });
+        console.log('[PageContext] 传入页面内容，URL:', currentUrl);
+      } else if (pageContext && currentUrl === lastPageUrl) {
+        console.log('[PageContext] 跳过重复页面内容，URL:', currentUrl);
+      }
 
       set({
         messages: [...get().messages, userMessage],
@@ -511,10 +526,18 @@ export const useChat = create<ChatStore>((set, get) => {
         // 判断是否启用 function calling
         if (settings.enableFunctionCalling) {
           console.log('[Function Calling] 模式已启用');
-          await handleFunctionCallingMode(userMessage, settings, context);
+          await handleFunctionCallingMode(
+            userMessage, 
+            settings, 
+            shouldIncludeContent ? pageContext.content : undefined
+          );
         } else {
           // 流式模式（现有逻辑）
-          await handleStreamMode(userMessage, settings, context);
+          await handleStreamMode(
+            userMessage, 
+            settings, 
+            shouldIncludeContent ? pageContext.content : undefined
+          );
         }
       } catch (error) {
         set({
@@ -525,7 +548,7 @@ export const useChat = create<ChatStore>((set, get) => {
     },
 
     clearMessages: () => {
-      set({ messages: [], error: null });
+      set({ messages: [], error: null, lastPageUrl: null });
     },
 
     addMessage: (message: Message) => {
