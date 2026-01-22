@@ -74,6 +74,13 @@ export async function handleMessage(
         await handleExecuteBackgroundTool(message as any, sendResponse);
         return true;
 
+      case 'REFRESH_PAGE_CONTEXT':
+        // 转发刷新请求到 sidepanel
+        // 不返回 true，让消息继续传递到其他监听者（如 sidepanel）
+        console.log('[Background] 收到刷新页面内容请求，转发到 sidepanel');
+        // 不调用 sendResponse，让消息继续传递
+        return false;
+
       default:
         console.warn('Unknown message type:', message.type);
         return false;

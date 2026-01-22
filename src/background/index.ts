@@ -22,8 +22,18 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 // 监听消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  handleMessage(message, sender, sendResponse);
-  return true; // 保持消息通道开启（异步响应）
+  // handleMessage 返回 Promise<boolean>
+  // 对于 REFRESH_PAGE_CONTEXT，返回 false 让消息继续传递到 sidepanel
+  handleMessage(message, sender, sendResponse).catch((error) => {
+    console.error('Error in handleMessage:', error);
+  });
+  // 对于需要异步响应的消息，返回 true
+  // 对于 REFRESH_PAGE_CONTEXT，返回 false 让消息传递到 sidepanel
+  // 但由于 handleMessage 是异步的，我们需要先检查消息类型
+  if ((message as any)?.type === 'REFRESH_PAGE_CONTEXT') {
+    return false; // 不拦截，让消息传递到 sidepanel
+  }
+  return true; // 默认保持消息通道开启（异步响应）
 });
 
 // 监听插件图标点击

@@ -135,6 +135,9 @@ let lastUrl = location.href;
 let refreshTimer: number | null = null;
 let domChangeTimer: number | null = null;
 
+// 存储上次 URL 的 key（用于传统页面导航检测）
+const LAST_URL_KEY = `${APP_NAME}_last_url`;
+
 /**
  * 通知 sidepanel 刷新页面内容（带防抖）
  */
@@ -151,21 +154,74 @@ function notifyPageContextRefresh() {
     // 只有当 URL 真正变化时才通知
     if (currentUrl !== lastUrl) {
       lastUrl = currentUrl;
+      // 更新存储的 URL
+      try {
+        sessionStorage.setItem(LAST_URL_KEY, currentUrl);
+      } catch (e) {
+        // 忽略 sessionStorage 错误（某些页面可能禁用）
+      }
+      
       console.log(`${APP_NAME}: 检测到路由变化，通知刷新页面内容`, currentUrl);
       
       // 通知 sidepanel 刷新
       chrome.runtime.sendMessage(
         createMessage('REFRESH_PAGE_CONTEXT', {}),
-        () => {
-          // 忽略无接收者的错误（sidepanel 可能未打开）
+        (response) => {
           if (chrome.runtime.lastError) {
-            // 静默忽略
+            console.warn(`${APP_NAME}: 发送刷新消息失败:`, chrome.runtime.lastError.message);
+          } else {
+            console.log(`${APP_NAME}: 刷新消息已发送，响应:`, response);
           }
         }
       );
     }
   }, 500);
 }
+
+/**
+ * 检查是否是页面首次加载（传统页面导航）
+ */
+function checkPageLoad() {
+  try {
+    const storedLastUrl = sessionStorage.getItem(LAST_URL_KEY);
+    const currentUrl = location.href;
+    
+    if (storedLastUrl && storedLastUrl !== currentUrl) {
+      // URL 变化了，说明是传统页面导航
+      console.log(`${APP_NAME}: 检测到传统页面导航，从 ${storedLastUrl} 到 ${currentUrl}`);
+      lastUrl = storedLastUrl; // 设置为上次的 URL，触发刷新
+      notifyPageContextRefresh();
+    } else if (!storedLastUrl) {
+      // 首次加载，存储当前 URL
+      sessionStorage.setItem(LAST_URL_KEY, currentUrl);
+      lastUrl = currentUrl;
+    } else {
+      // URL 相同，更新 lastUrl
+      lastUrl = currentUrl;
+    }
+  } catch (e) {
+    // 忽略 sessionStorage 错误（某些页面可能禁用）
+    console.warn(`${APP_NAME}: 无法访问 sessionStorage，跳过传统页面导航检测`);
+    lastUrl = location.href;
+  }
+}
+
+// 在页面加载完成后检查（传统页面导航）
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    // 延迟一点，确保 URL 已经更新
+    setTimeout(checkPageLoad, 100);
+  });
+} else {
+  // 如果已经加载完成，立即检查
+  setTimeout(checkPageLoad, 100);
+}
+
+// 也监听 load 事件（确保所有资源加载完成）
+window.addEventListener('load', () => {
+  // 延迟一点，确保 URL 已经更新
+  setTimeout(checkPageLoad, 100);
+});
 
 // 1. 监听浏览器前进后退（popstate）
 window.addEventListener('popstate', () => {

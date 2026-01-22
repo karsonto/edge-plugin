@@ -216,6 +216,11 @@ export interface ExecuteBackgroundToolMessage extends BaseMessage {
   };
 }
 
+export interface RefreshPageContextMessage extends BaseMessage {
+  type: 'REFRESH_PAGE_CONTEXT';
+  payload?: {};
+}
+
 export type Message =
   | GetPageContextMessage
   | PageContextResponseMessage
@@ -238,7 +243,8 @@ export type Message =
   | SettingsResponseMessage
   | TakeScreenshotMessage
   | DownloadFileMessage
-  | ExecuteBackgroundToolMessage;
+  | ExecuteBackgroundToolMessage
+  | RefreshPageContextMessage;
 
 /**
  * 聊天消息类型
