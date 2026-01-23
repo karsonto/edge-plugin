@@ -5,10 +5,13 @@
 
 import JSZip from 'jszip';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// 设置 PDF.js worker (使用 CDN)
-pdfjsLib.GlobalWorkerOptions.workerSrc = 
-  'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+// 设置 PDF.js worker (使用本地文件)
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  pdfjsWorker,
+  import.meta.url
+).toString();
 
 export interface ParsedFile {
   id: string;
