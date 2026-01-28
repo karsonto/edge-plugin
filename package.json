@@ -32,7 +32,7 @@
     "remark-gfm": "^4.0.0",
     "react-syntax-highlighter": "^16.1.0",
     "jszip": "^3.10.1",
-    "pdfjs-dist": "^4.0.379"
+    "pdfjs-dist": "^5.4.530"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.23",
