@@ -461,8 +461,13 @@ async function requestVisibleTabCapture(signal?: AbortSignal) {
         return;
       }
 
+      if (response?.type === 'ERROR') {
+        reject(new Error(response?.payload?.error || '后台截图服务执行失败'));
+        return;
+      }
+
       if (!response?.ok || typeof response?.dataUrl !== 'string') {
-        reject(new Error(response?.error || '截图失败'));
+        reject(new Error(response?.error || response?.payload?.error || '截图失败'));
         return;
       }
 

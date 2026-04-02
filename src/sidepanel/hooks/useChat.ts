@@ -49,6 +49,52 @@ export const useChat = create<ChatStore>((set, get) => {
   let currentAgentAssistantUiId: string | null = null;
   let currentToolStatusMessageId: string | null = null;
 
+  const PAGE_UNDERSTANDING_PATTERNS = [
+    /总结/,
+    /概括/,
+    /摘要/,
+    /翻译/,
+    /解释/,
+    /解读/,
+    /提取/,
+    /梳理/,
+    /分析.*(?:页面|网页|文章|内容)/,
+    /这页.*?(?:讲了什么|内容|主要内容)/,
+    /页面.*?(?:讲了什么|内容|主要内容)/,
+    /总结.*(?:页面|网页|文章|内容)/,
+  ];
+
+  const BROWSER_ACTION_PATTERNS = [
+    /点击/,
+    /输入/,
+    /填写/,
+    /选择/,
+    /提交/,
+    /等待/,
+    /查找元素/,
+    /定位/,
+    /按钮/,
+    /表单/,
+    /截图/,
+    /inspect/i,
+    /query/i,
+    /find/i,
+    /click/i,
+    /type/i,
+    /select/i,
+    /wait/i,
+  ];
+
+  const isPageUnderstandingRequest = (content: string) => {
+    const text = content.trim();
+    return PAGE_UNDERSTANDING_PATTERNS.some((pattern) => pattern.test(text));
+  };
+
+  const isBrowserActionRequest = (content: string) => {
+    const text = content.trim();
+    return BROWSER_ACTION_PATTERNS.some((pattern) => pattern.test(text));
+  };
+
   const getToolIntent = (toolName: string, args: Record<string, any> | undefined) => {
     if (!args) return `执行工具 \`${toolName}\``;
 
@@ -464,6 +510,12 @@ export const useChat = create<ChatStore>((set, get) => {
       const { lastPageUrl } = get();
       const currentUrl = pageContext?.url;
       const shouldIncludeContent = pageContext && currentUrl !== lastPageUrl;
+      const hasFreshPageContext = Boolean(pageContext?.content?.trim());
+      const preferContextOnlyMode =
+        Boolean(settings.enableFunctionCalling) &&
+        hasFreshPageContext &&
+        isPageUnderstandingRequest(userMessage.content) &&
+        !isBrowserActionRequest(userMessage.content);
 
       if (shouldIncludeContent && currentUrl) {
         set({ lastPageUrl: currentUrl });
@@ -479,7 +531,14 @@ export const useChat = create<ChatStore>((set, get) => {
       });
 
       try {
-        if (settings.enableFunctionCalling) {
+        if (preferContextOnlyMode) {
+          console.log('[PageContext] 检测到页面理解型问题，优先走纯文本上下文链路');
+          await handleStreamMode(
+            userMessage,
+            settings,
+            pageContext?.content
+          );
+        } else if (settings.enableFunctionCalling) {
           console.log('[Browser Automation] 模式已启用');
           await handleBrowserAutomationMode(
             userMessage,

@@ -215,13 +215,26 @@ async function handleCaptureVisibleTab(
   sender: chrome.runtime.MessageSender,
   sendResponse: (response?: any) => void
 ) {
-  const result = await captureVisibleTab({
-    windowId: sender.tab?.windowId,
-    format: message.payload?.format,
-    quality: message.payload?.quality,
-  });
+  try {
+    const result = await captureVisibleTab({
+      windowId: sender.tab?.windowId,
+      format: message.payload?.format,
+      quality: message.payload?.quality,
+    });
 
-  sendResponse({ ok: true, ...result });
+    sendResponse({ ok: true, ...result });
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const friendlyMessage =
+      rawMessage.includes('activeTab') || rawMessage.includes('<all_urls>')
+        ? `截图权限不足：请重新聚焦当前网页，并在更新扩展权限后刷新页面或重新加载扩展再试。原始错误：${rawMessage}`
+        : rawMessage;
+
+    sendResponse({
+      ok: false,
+      error: friendlyMessage,
+    });
+  }
 }
 
 /**
