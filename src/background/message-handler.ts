@@ -2,21 +2,11 @@
  * 消息处理器
  */
 
-import type { Message } from '@/shared/types';
+import type { Message, PageContext } from '@/shared/types';
 import { AIService } from './ai-service';
 import { storageManager } from './storage-manager';
 import { createMessage, generateMessageId } from '@/shared/utils/message-bridge';
-import { automationOrchestrator } from './automation-orchestrator';
-import { takeScreenshot, downloadFile, type ScreenshotOptions, type DownloadOptions } from './media-service';
-import {
-  tool_navigate,
-  tool_refresh,
-  tool_goBack,
-  tool_goForward,
-  tool_getWindowsAndTabs,
-  tool_switchTab,
-  tool_closeTab,
-} from './browser-tools';
+import { parsePDFBuffer } from '@/shared/utils/file-parser';
 
 /**
  * 处理来自 content script 或 sidepanel 的消息
@@ -38,22 +28,6 @@ export async function handleMessage(
         await handleSendToAI(message, sendResponse);
         return true;
 
-      case 'RUN_AUTOMATION':
-        await handleRunAutomation(message as any, sendResponse);
-        return true;
-
-      case 'STOP_AUTOMATION':
-        await handleStopAutomation(message as any, sendResponse);
-        return false;
-
-      case 'CONFIRMATION_RESPONSE':
-        await handleConfirmationResponse(message as any, sendResponse);
-        return false;
-
-      case 'LOAD_AUTOMATION_HISTORY':
-        await handleLoadAutomationHistory(sendResponse);
-        return false;
-
       case 'SAVE_SETTINGS':
         await handleSaveSettings(message, sendResponse);
         return false;
@@ -61,18 +35,6 @@ export async function handleMessage(
       case 'LOAD_SETTINGS':
         await handleLoadSettings(sendResponse);
         return false;
-
-      case 'TAKE_SCREENSHOT':
-        await handleTakeScreenshot(message as any, sender, sendResponse);
-        return true;
-
-      case 'DOWNLOAD_FILE':
-        await handleDownloadFile(message as any, sendResponse);
-        return true;
-
-      case 'EXECUTE_BACKGROUND_TOOL':
-        await handleExecuteBackgroundTool(message as any, sendResponse);
-        return true;
 
       case 'REFRESH_PAGE_CONTEXT':
         // 转发刷新请求到 sidepanel
@@ -97,41 +59,6 @@ export async function handleMessage(
   }
 }
 
-async function handleLoadAutomationHistory(sendResponse: (response?: any) => void) {
-  const history = await storageManager.loadAutomationHistory();
-  sendResponse(createMessage('AUTOMATION_HISTORY_RESPONSE', history));
-}
-
-async function handleRunAutomation(message: any, sendResponse: (response?: any) => void) {
-  const { tabId, goal, context } = message.payload || {};
-  if (!tabId || !goal) {
-    sendResponse({ type: 'ERROR', payload: { error: 'Missing tabId or goal' } });
-    return;
-  }
-  const runId = await automationOrchestrator.start(tabId, goal, context);
-  sendResponse({ success: true, runId });
-}
-
-async function handleStopAutomation(message: any, sendResponse: (response?: any) => void) {
-  const { runId } = message.payload || {};
-  if (!runId) {
-    sendResponse({ type: 'ERROR', payload: { error: 'Missing runId' } });
-    return;
-  }
-  automationOrchestrator.stop(runId);
-  sendResponse({ success: true });
-}
-
-async function handleConfirmationResponse(message: any, sendResponse: (response?: any) => void) {
-  const { runId, stepId, approved } = message.payload || {};
-  if (!runId || !stepId) {
-    sendResponse({ type: 'ERROR', payload: { error: 'Missing runId or stepId' } });
-    return;
-  }
-  automationOrchestrator.confirm(runId, stepId, !!approved);
-  sendResponse({ success: true });
-}
-
 /**
  * 处理获取页面上下文
  */
@@ -149,7 +76,62 @@ async function handleGetPageContext(
     throw new Error('No tab ID');
   }
 
-  // 发送消息到 content script
+  // 获取当前标签信息
+  const tab = await chrome.tabs.get(targetTabId);
+  const url = tab.url || '';
+
+  // 简单判断是否为 PDF 页面（URL 以 .pdf 结尾或包含 .pdf? / .pdf#）
+  const isPdf = /\.pdf(\?|#|$)/i.test(url);
+
+  if (isPdf) {
+    try {
+      // 在 background 中直接拉取 PDF 文件
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        throw new Error(`获取 PDF 失败: ${resp.status} ${resp.statusText}`);
+      }
+
+      const arrayBuffer = await resp.arrayBuffer();
+      const { content } = await parsePDFBuffer(arrayBuffer);
+
+      const context: PageContext = {
+        title: tab.title || 'PDF 文档',
+        url,
+        content,
+        selectedText: undefined,
+        metadata: {
+          wordCount: content.length,
+          readingTime: Math.ceil(content.length / 500),
+        },
+        timestamp: Date.now(),
+      };
+
+      const responseMessage = createMessage('PAGE_CONTEXT_RESPONSE', {
+        ...context,
+        metadata: {
+          author: undefined,
+          publishDate: undefined,
+          wordCount: context.metadata.wordCount,
+        },
+      });
+
+      // 保存到存储
+      storageManager.savePageContext(context);
+      sendResponse(responseMessage);
+      return;
+    } catch (error) {
+      console.error('Error parsing PDF page context:', error);
+      sendResponse({
+        type: 'ERROR',
+        payload: {
+          error: error instanceof Error ? error.message : '解析 PDF 失败',
+        },
+      });
+      return;
+    }
+  }
+
+  // 非 PDF 页面：发送消息到 content script 由 DOM 文本提取模块处理
   chrome.tabs.sendMessage(
     targetTabId,
     createMessage('GET_PAGE_CONTEXT'),
@@ -242,81 +224,4 @@ async function handleLoadSettings(sendResponse: (response?: any) => void) {
   sendResponse(
     createMessage('SETTINGS_RESPONSE', config)
   );
-}
-
-/**
- * 处理截图请求
- */
-async function handleTakeScreenshot(
-  message: { payload: ScreenshotOptions },
-  sender: chrome.runtime.MessageSender,
-  sendResponse: (response?: any) => void
-) {
-  const tabId = sender.tab?.id;
-  if (!tabId) {
-    sendResponse({ ok: false, error: 'No tab ID' });
-    return;
-  }
-
-  const result = await takeScreenshot(tabId, message.payload);
-  sendResponse(result);
-}
-
-/**
- * 处理下载请求
- */
-async function handleDownloadFile(
-  message: { payload: DownloadOptions },
-  sendResponse: (response?: any) => void
-) {
-  const result = await downloadFile(message.payload);
-  sendResponse(result);
-}
-
-/**
- * 处理需要在 background 执行的工具
- */
-async function handleExecuteBackgroundTool(
-  message: { payload: { tool: string; args: any } },
-  sendResponse: (response?: any) => void
-) {
-  const { tool, args } = message.payload;
-
-  try {
-    let result;
-    switch (tool) {
-      case 'navigate':
-        result = await tool_navigate(args);
-        break;
-      case 'refresh':
-        result = await tool_refresh(args);
-        break;
-      case 'goBack':
-        result = await tool_goBack(args);
-        break;
-      case 'goForward':
-        result = await tool_goForward(args);
-        break;
-      case 'getWindowsAndTabs':
-        result = await tool_getWindowsAndTabs(args);
-        break;
-      case 'switchTab':
-        result = await tool_switchTab(args);
-        break;
-      case 'closeTab':
-        result = await tool_closeTab(args);
-        break;
-      default:
-        result = { ok: false, tool: tool as any, error: `Unknown background tool: ${tool}` };
-    }
-    sendResponse({ result });
-  } catch (error) {
-    sendResponse({
-      result: {
-        ok: false,
-        tool: tool as any,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-    });
-  }
 }

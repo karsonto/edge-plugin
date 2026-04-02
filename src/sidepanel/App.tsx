@@ -20,7 +20,7 @@ function App() {
   const [chatZoomOpen, setChatZoomOpen] = useState(false);
   // 默认开启：发送提问时附带当前网页抓取内容
   const [includePageContext, setIncludePageContext] = useState(true);
-  // Function Calling 开关
+  // 只读工具开关
   const [enableFunctionCalling, setEnableFunctionCalling] = useState(false);
   // 文件拖拽状态
   const [isDragging, setIsDragging] = useState(false);
@@ -61,7 +61,7 @@ function App() {
     if (activeTab !== 'chat') setChatZoomOpen(false);
   }, [activeTab]);
 
-  // 同步 Function Calling 开关状态
+  // 同步只读工具开关状态
   useEffect(() => {
     setEnableFunctionCalling(ai.enableFunctionCalling || false);
   }, [ai.enableFunctionCalling]);
@@ -126,7 +126,7 @@ function App() {
     }
   }, [addFiles]);
 
-  // 处理 Function Calling 开关切换
+  // 处理只读工具开关切换
   const handleToggleFunctionCalling = (enabled: boolean) => {
     setEnableFunctionCalling(enabled);
     // 立即保存到设置
@@ -362,10 +362,10 @@ function App() {
 
             {/* Toggle Bar (开关栏) */}
             <div className="px-5 py-2 border-t border-gray-200 bg-white flex justify-between items-center">
-              {/* 左侧：Function Calling 开关 */}
+              {/* 左侧：只读工具开关 */}
               <div className="flex items-center gap-2 select-none">
                 <span className="text-xs text-gray-600 whitespace-nowrap">
-                  浏览器自动化
+                  页面读取工具
                 </span>
                 <button
                   type="button"
@@ -376,7 +376,7 @@ function App() {
                     "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 " +
                     (enableFunctionCalling ? "bg-primary" : "bg-gray-300")
                   }
-                  title="开启后，AI 可以调用浏览器工具（点击、输入、查询元素等）完成复杂任务"
+                  title="开启后，AI 只能调用只读工具读取页面信息、查询元素和提取文本"
                 >
                   <span
                     className={

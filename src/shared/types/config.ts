@@ -30,7 +30,7 @@ export interface AIConfig {
   customEndpoint?: string;
   topP?: number;
   repetitionPenalty?: number;
-  enableFunctionCalling?: boolean;  // 是否启用 function calling
+  enableFunctionCalling?: boolean;  // 历史字段名，当前用于控制只读工具模式
 }
 
 /**
@@ -118,7 +118,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     model: 'gpt-4-turbo-preview',
     temperature: 0.7,
     maxTokens: 65535,
-    enableFunctionCalling: false,  // 默认关闭
+    enableFunctionCalling: false,  // 默认关闭只读工具模式
   },
   quickActions: DEFAULT_QUICK_ACTIONS,
   ui: {

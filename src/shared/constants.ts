@@ -7,9 +7,7 @@
  */
 export const STORAGE_KEYS = {
   CONFIG: 'edage_config',
-  CHAT_HISTORY: 'edage_chat_history',
   LAST_PAGE_CONTEXT: 'edage_last_page_context',
-  AUTOMATION_HISTORY: 'edage_automation_history',
 } as const;
 
 /**
@@ -21,11 +19,6 @@ export const MESSAGE_TIMEOUT = 30000;
  * 最大内容长度（字符）
  */
 export const MAX_CONTENT_LENGTH = 50000;
-
-/**
- * 最大历史消息数
- */
-export const MAX_CHAT_HISTORY = 50;
 
 /**
  * API 端点
@@ -110,7 +103,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     customEndpoint:
       import.meta.env.VITE_DEFAULT_CUSTOM_ENDPOINT ||
       'http://localhost:8080/v1/chat/completions',
-    enableFunctionCalling: false,
+    enableFunctionCalling: false, // 历史字段名，当前用于控制只读工具模式
   },
   quickActions: DEFAULT_QUICK_ACTIONS,
   ui: {
@@ -127,36 +120,11 @@ export const DEFAULT_CONFIG: AppConfig = {
 };
 
 /**
- * 工具执行相关常量
- */
-export const TOOL_TIMEOUTS = {
-  DEFAULT_WAIT: 1000,
-  CLICK_DELAY: 100,
-  KEYBOARD_DELAY: 50,
-  NETWORK_TIMEOUT: 30000,
-  DOM_STABLE_TIMEOUT: 800,
-  DOM_STABLE_IDLE: 160,
-  ELEMENT_WAIT_TIMEOUT: 5000,
-} as const;
-
-/**
  * 工具错误消息
  */
 export const TOOL_ERRORS = {
   ELEMENT_NOT_FOUND: 'Element not found',
   INVALID_SELECTOR: 'Invalid selector',
-  TAB_NOT_FOUND: 'Tab not found',
-  WINDOW_NOT_FOUND: 'Window not found',
-  INVALID_URL: 'Invalid URL',
-  NAVIGATION_FAILED: 'Navigation failed',
   SELECTOR_TYPE_NOT_SUPPORTED: 'Selector type not supported',
   MISSING_REQUIRED_PARAM: 'Missing required parameter',
-} as const;
-
-/**
- * 默认窗口尺寸
- */
-export const DEFAULT_WINDOW = {
-  WIDTH: 1280,
-  HEIGHT: 720,
 } as const;

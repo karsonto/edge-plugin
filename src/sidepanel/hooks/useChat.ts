@@ -136,7 +136,7 @@ export const useChat = create<ChatStore>((set, get) => {
 
   const logFC = {
     start: (userMessage: string) => {
-      console.group('%c🤖 Function Calling 开始', logStyles.title);
+      console.group('%c🤖 只读工具模式开始', logStyles.title);
       console.log('%c用户消息:', logStyles.info, userMessage);
       console.log('%c时间:', logStyles.data, new Date().toLocaleTimeString());
       console.groupEnd();
@@ -196,14 +196,14 @@ export const useChat = create<ChatStore>((set, get) => {
       console.groupEnd();
     },
     end: (toolsExecuted: string[], loopCount: number) => {
-      console.group('%c🏁 Function Calling 结束', logStyles.title);
+      console.group('%c🏁 只读工具模式结束', logStyles.title);
       console.log('%c总循环次数:', logStyles.data, loopCount);
       console.log('%c执行的工具:', logStyles.data, toolsExecuted.length > 0 ? toolsExecuted.join(' → ') : '无');
       console.groupEnd();
     }
   };
 
-  // Function Calling 模式处理
+  // 只读工具模式处理
   const handleFunctionCallingMode = async (
     _userMessage: Message,
     aiConfig: AIConfig,
@@ -216,9 +216,6 @@ export const useChat = create<ChatStore>((set, get) => {
     const MAX_RETRIES = 5;
     const MAX_LOOPS = 100;
 
-    // 终结性工具：执行后应该直接给出结果
-    const TERMINAL_TOOLS = ['download', 'screenshot'];
-
     // 开始日志
     logFC.start(_userMessage.content);
 
@@ -230,12 +227,12 @@ export const useChat = create<ChatStore>((set, get) => {
       timestamp: msg.timestamp,
     }));
     
-    // 添加 system prompt 指导 AI 行为
+    // 添加 system prompt 指导 AI 只使用只读工具
     apiMessages.unshift({
       role: 'system',
-      content: `你是一个浏览器自动化助手。规则：
-1. 完成用户请求后，必须用自然语言回复用户（不要继续调用工具）
-2. 如果工具执行成功（如下载、截图），直接告诉用户结果
+      content: `你是一个网页阅读助手。规则：
+1. 你只能使用只读工具获取页面信息，不能点击、输入、导航、下载或修改页面
+2. 完成用户请求后，必须用自然语言回复用户
 3. 不要重复调用同一个工具
 4. 每次最多调用 1-2 个工具`,
       timestamp: Date.now()
@@ -256,7 +253,7 @@ export const useChat = create<ChatStore>((set, get) => {
     while (loopCount < MAX_LOOPS) {
       // 检查是否被停止
       if (shouldStop) {
-        console.log('[Function Calling] 用户中断执行');
+        console.log('[Read Tools] 用户中断执行');
         logFC.end(lastToolResults, loopCount);
         set({
           isLoading: false,
@@ -274,16 +271,13 @@ export const useChat = create<ChatStore>((set, get) => {
       logFC.loop(loopCount, MAX_LOOPS);
 
       try {
-        // 如果已经执行过终结性工具，强制 AI 返回文本
-        const shouldForceResponse = lastToolResults.some(t => TERMINAL_TOOLS.includes(t));
-        
         // 日志：AI 请求
-        logFC.aiRequest(apiMessages, !shouldForceResponse);
+        logFC.aiRequest(apiMessages, true);
 
         // 调用 AI
         const response = await aiService.chat(apiMessages, {
-          tools: shouldForceResponse ? undefined : tools,
-          tool_choice: shouldForceResponse ? undefined : 'auto'
+          tools,
+          tool_choice: 'auto'
         });
 
         // 日志：AI 响应
@@ -357,14 +351,6 @@ export const useChat = create<ChatStore>((set, get) => {
             };
             apiMessages.push(toolMessage);
 
-            // 如果是终结性工具且执行成功，添加提示让 AI 返回结果
-            if (TERMINAL_TOOLS.includes(toolName) && toolResult.ok) {
-              apiMessages.push({
-                role: 'system',
-                content: `工具 ${toolName} 已成功执行。请用自然语言告诉用户结果，不要再调用工具。`,
-                timestamp: Date.now()
-              });
-            }
           }
 
           // 继续循环，让 AI 基于工具结果决定下一步
@@ -565,7 +551,7 @@ export const useChat = create<ChatStore>((set, get) => {
       try {
         // 判断是否启用 function calling
         if (settings.enableFunctionCalling) {
-          console.log('[Function Calling] 模式已启用');
+          console.log('[Read Tools] 模式已启用');
           await handleFunctionCallingMode(
             userMessage, 
             settings, 

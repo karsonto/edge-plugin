@@ -155,9 +155,9 @@ async function parseDOCX(file: File): Promise<string> {
 /**
  * 解析 PDF 文件
  */
-async function parsePDF(file: File): Promise<{ content: string; pageCount: number }> {
-  const arrayBuffer = await file.arrayBuffer();
-  
+export async function parsePDFBuffer(
+  arrayBuffer: ArrayBuffer
+): Promise<{ content: string; pageCount: number }> {
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const texts: string[] = [];
   
@@ -178,6 +178,14 @@ async function parsePDF(file: File): Promise<{ content: string; pageCount: numbe
     content: texts.join('\n\n') || '(无文本内容)',
     pageCount: pdf.numPages,
   };
+}
+
+/**
+ * 解析 PDF 文件（File 包装）
+ */
+async function parsePDF(file: File): Promise<{ content: string; pageCount: number }> {
+  const arrayBuffer = await file.arrayBuffer();
+  return parsePDFBuffer(arrayBuffer);
 }
 
 /**
