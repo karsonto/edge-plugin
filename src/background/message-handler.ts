@@ -2,11 +2,12 @@
  * 消息处理器
  */
 
-import type { Message, PageContext } from '@/shared/types';
+import type { CaptureVisibleTabMessage, Message, PageContext } from '@/shared/types';
 import { AIService } from './ai-service';
 import { storageManager } from './storage-manager';
 import { createMessage, generateMessageId } from '@/shared/utils/message-bridge';
 import { parsePDFBuffer } from '@/shared/utils/file-parser';
+import { captureVisibleTab } from './screenshot-service';
 
 /**
  * 处理来自 content script 或 sidepanel 的消息
@@ -26,6 +27,10 @@ export async function handleMessage(
 
       case 'SEND_TO_AI':
         await handleSendToAI(message, sendResponse);
+        return true;
+
+      case 'CAPTURE_VISIBLE_TAB':
+        await handleCaptureVisibleTab(message as CaptureVisibleTabMessage, sender, sendResponse);
         return true;
 
       case 'SAVE_SETTINGS':
@@ -203,6 +208,20 @@ async function handleSendToAI(
       },
     });
   }
+}
+
+async function handleCaptureVisibleTab(
+  message: CaptureVisibleTabMessage,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: any) => void
+) {
+  const result = await captureVisibleTab({
+    windowId: sender.tab?.windowId,
+    format: message.payload?.format,
+    quality: message.payload?.quality,
+  });
+
+  sendResponse({ ok: true, ...result });
 }
 
 /**

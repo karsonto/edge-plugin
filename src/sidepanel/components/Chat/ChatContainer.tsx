@@ -10,6 +10,16 @@ interface Message {
   content: string;
   timestamp: number;
   isStreaming?: boolean;
+  kind?: 'default' | 'tool_log';
+  toolLog?: {
+    toolName: string;
+    status: 'running' | 'success' | 'error';
+    summary: string;
+    intent?: string;
+    args?: Record<string, any>;
+    resultText?: string;
+    details?: unknown;
+  };
 }
 
 interface ChatContainerProps {
@@ -72,6 +82,8 @@ export function ChatContainer({
                 content={message.content}
                 timestamp={message.timestamp}
                 isStreaming={message.isStreaming}
+                kind={message.kind}
+                toolLog={message.toolLog}
               />
             ))}
             {isLoading && !messages.some(m => m.isStreaming) && (

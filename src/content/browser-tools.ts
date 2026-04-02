@@ -1,11 +1,25 @@
 /**
- * Content Script 只读工具执行器
- * 仅保留页面理解 / 读取相关能力，禁止页面交互和浏览器控制。
+ * Content Script 自动化工具执行器
+ * 提供页面读取 + 低风险表单操作能力。
  */
 
-import type { ElementSummary, ToolCall, ToolName, ToolResult } from '@/shared/types';
+import type {
+  ElementSummary,
+  InspectElementData,
+  InteractAction,
+  InteractResultData,
+  ScreenshotResultData,
+  SelectorType,
+  SelectOptionSummary,
+  ToolCall,
+  ToolName,
+  ToolResult,
+  WaitForResultData,
+  WaitForState,
+} from '@/shared/types';
 import { extractAllVisibleText, truncateText } from '@/shared/utils/text-processor';
 import { isElementVisible, resolveSelector, resolveSelectorAll } from '@/shared/utils/dom-utils';
+import { createMessage } from '@/shared/utils';
 import { TOOL_ERRORS } from '@/shared/constants';
 
 type StoredElement = { el: Element; createdAt: number };
@@ -16,6 +30,9 @@ let elementSeq = 0;
 function now() {
   return Date.now();
 }
+
+const MAX_SCREENSHOT_DIMENSION = 8192;
+const MAX_SCREENSHOT_DATA_URL_LENGTH = 6_000_000;
 
 function hashText(input: string): string {
   let h = 5381;
@@ -98,6 +115,13 @@ function getStoredElement(id?: string): Element | null {
   return elementStore.get(id)?.el || null;
 }
 
+function getElementId(el: Element): string {
+  for (const [id, entry] of elementStore.entries()) {
+    if (entry.el === el) return id;
+  }
+  return storeElement(el);
+}
+
 function buildSelectorHint(el: Element): string | undefined {
   const id = el.getAttribute('id');
   if (id) return `#${cssEscape(id)}`;
@@ -154,6 +178,13 @@ function summarizeElement(el: Element): Omit<ElementSummary, 'id'> {
   };
 }
 
+function summarizeStoredElement(el: Element): ElementSummary {
+  return {
+    id: getElementId(el),
+    ...summarizeElement(el),
+  };
+}
+
 function isButtonLike(el: Element): boolean {
   const tag = el.tagName.toLowerCase();
   if (tag === 'button' || tag === 'a') return true;
@@ -164,20 +195,429 @@ function isButtonLike(el: Element): boolean {
   return el.getAttribute('role') === 'button';
 }
 
-function resolveTargetElement(args: any): Element | null {
+function isLinkLike(el: Element): boolean {
+  const tag = el.tagName.toLowerCase();
+  return tag === 'a' || el.getAttribute('role') === 'link';
+}
+
+function isFieldLike(el: Element): boolean {
+  return (
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLSelectElement ||
+    (el instanceof HTMLElement && el.isContentEditable)
+  );
+}
+
+function matchesRole(el: Element, role?: string) {
+  if (!role) return true;
+  if (role === 'button') return isButtonLike(el);
+  if (role === 'link') return isLinkLike(el);
+  if (role === 'field') return isFieldLike(el);
+  return true;
+}
+
+function resolveTargetElement(args: any, signal?: AbortSignal): Element | null {
   if (args?.elementId) {
     const byId = getStoredElement(args.elementId);
     if (byId) return byId;
   }
 
   const selector = (args?.selector as string | undefined)?.trim();
-  if (!selector) return null;
+  if (selector) {
+    const selectorType = (args?.selectorType as SelectorType | undefined) || 'css';
+    return resolveSelector(selector, selectorType);
+  }
 
-  const selectorType = (args?.selectorType as 'css' | 'xpath' | undefined) || 'css';
-  return resolveSelector(selector, selectorType);
+  const targetText = (args?.targetText as string | undefined)?.trim();
+  if (!targetText) return null;
+
+  const targetRole = (args?.targetRole as string | undefined)?.toLowerCase();
+  return resolveTargetByText(targetText, targetRole, signal);
 }
 
-function tool_getPageInfo(): ToolResult<{ url: string; title: string }> {
+function getNearbyText(el: Element): string | undefined {
+  const container = el.closest('label, fieldset, form, div, section, td, li') || el.parentElement;
+  if (!container) return undefined;
+  const text = ((container as HTMLElement).innerText || container.textContent || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text ? truncateText(text, 200) : undefined;
+}
+
+function getSearchFields(el: Element) {
+  const htmlEl = el as HTMLElement;
+  const inner = (htmlEl.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+  const title = (el.getAttribute('title') || '').trim().toLowerCase();
+  const placeholder = (el.getAttribute('placeholder') || '').trim().toLowerCase();
+  const value =
+    el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement
+      ? (el.value || '').trim().toLowerCase()
+      : '';
+  const name = (el.getAttribute('name') || '').trim().toLowerCase();
+  const label = (getLabelText(el) || '').trim().toLowerCase();
+  const nearby = (getNearbyText(el) || '').trim().toLowerCase();
+
+  return { inner, aria, title, placeholder, value, name, label, nearby };
+}
+
+function scoreFieldMatch(field: string, wanted: string, exact = 100, starts = 85, contains = 65) {
+  if (!field) return 0;
+  if (field === wanted) return exact;
+  if (field.startsWith(wanted)) return starts;
+  if (field.includes(wanted)) return contains;
+  return 0;
+}
+
+function findScoredElementsByText(searchText: string, role?: string, signal?: AbortSignal) {
+  const wanted = searchText.toLowerCase();
+  const scored: Array<{ el: Element; score: number }> = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+
+  let n: Node | null = walker.nextNode();
+  while (n) {
+    assertNotAborted(signal);
+    const el = n as Element;
+    if (!isElementVisible(el) || !matchesRole(el, role)) {
+      n = walker.nextNode();
+      continue;
+    }
+
+    const { inner, aria, title, placeholder, value, name, label, nearby } = getSearchFields(el);
+    const fields = [inner, aria, title, placeholder, label, name, value, nearby].filter(Boolean);
+    const hay = fields.join(' | ');
+    if (hay.includes(wanted)) {
+      let score = 0;
+      score = Math.max(score, scoreFieldMatch(label, wanted, 120, 100, 80));
+      score = Math.max(score, scoreFieldMatch(placeholder, wanted, 110, 90, 75));
+      score = Math.max(score, scoreFieldMatch(aria, wanted, 105, 90, 75));
+      score = Math.max(score, scoreFieldMatch(name, wanted, 90, 75, 60));
+      score = Math.max(score, scoreFieldMatch(title, wanted, 85, 70, 55));
+      score = Math.max(score, scoreFieldMatch(nearby, wanted, 80, 68, 52));
+      score = Math.max(score, scoreFieldMatch(inner, wanted, 75, 60, 45));
+      score = Math.max(score, scoreFieldMatch(value, wanted, 70, 55, 40));
+
+      if (role === 'button' && isButtonLike(el)) score += 10;
+      if (role === 'field' && isFieldLike(el)) score += 15;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+        score += 5;
+      }
+
+      scored.push({ el, score });
+    }
+
+    n = walker.nextNode();
+  }
+
+  return scored.sort((a, b) => b.score - a.score);
+}
+
+function resolveTargetByText(searchText: string, role?: string, signal?: AbortSignal): Element | null {
+  return findScoredElementsByText(searchText, role, signal)[0]?.el || null;
+}
+
+function getSelectOptions(el: Element): SelectOptionSummary[] | undefined {
+  if (!(el instanceof HTMLSelectElement)) return undefined;
+  return Array.from(el.options)
+    .slice(0, 20)
+    .map((option) => ({
+      label: option.label,
+      value: option.value,
+      selected: option.selected,
+    }));
+}
+
+function getElementValue(el: Element): string | undefined {
+  if (
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLSelectElement
+  ) {
+    return el.value;
+  }
+  return undefined;
+}
+
+function snapshotState() {
+  const observations = makeObservations();
+  return {
+    url: observations?.url,
+    visibleTextHash: observations?.visibleTextHash,
+  };
+}
+
+function assertNotAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new Error('操作已中断。');
+  }
+}
+
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('操作已中断。'));
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(new Error('操作已中断。'));
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function getPageMetrics() {
+  const docEl = document.documentElement;
+  const body = document.body;
+  const root = document.scrollingElement || docEl;
+
+  return {
+    pageWidth: Math.max(
+      root.scrollWidth,
+      docEl.scrollWidth,
+      body?.scrollWidth || 0,
+      docEl.clientWidth,
+      window.innerWidth
+    ),
+    pageHeight: Math.max(
+      root.scrollHeight,
+      docEl.scrollHeight,
+      body?.scrollHeight || 0,
+      docEl.clientHeight,
+      window.innerHeight
+    ),
+    viewportWidth: Math.max(docEl.clientWidth || 0, window.innerWidth || 0),
+    viewportHeight: Math.max(docEl.clientHeight || 0, window.innerHeight || 0),
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+    devicePixelRatio: window.devicePixelRatio || 1,
+  };
+}
+
+function buildCapturePositions(total: number, viewport: number) {
+  const positions: number[] = [];
+  const safeTotal = Math.max(1, Math.round(total));
+  const safeViewport = Math.max(1, Math.round(viewport));
+
+  let offset = 0;
+  while (offset < safeTotal) {
+    positions.push(Math.min(offset, Math.max(safeTotal - safeViewport, 0)));
+    offset += safeViewport;
+    if (positions.length > 1 && positions[positions.length - 1] === positions[positions.length - 2]) {
+      break;
+    }
+  }
+
+  return positions;
+}
+
+function buildCapturePlan(total: number, viewport: number) {
+  const positions = buildCapturePositions(total, viewport);
+  let coveredUntil = 0;
+
+  return positions
+    .map((captureStart) => {
+      const captureEnd = Math.min(captureStart + viewport, total);
+      const drawStart = Math.max(captureStart, coveredUntil);
+      const drawEnd = captureEnd;
+      coveredUntil = Math.max(coveredUntil, captureEnd);
+
+      return {
+        captureStart,
+        drawStart,
+        drawSize: Math.max(0, drawEnd - drawStart),
+        cropStart: Math.max(0, drawStart - captureStart),
+      };
+    })
+    .filter((item) => item.drawSize > 0);
+}
+
+async function waitForNextPaint(signal?: AbortSignal) {
+  assertNotAborted(signal);
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  await sleep(120, signal);
+}
+
+async function requestVisibleTabCapture(signal?: AbortSignal) {
+  assertNotAborted(signal);
+  return new Promise<{ dataUrl: string; mimeType: string }>((resolve, reject) => {
+    chrome.runtime.sendMessage(createMessage('CAPTURE_VISIBLE_TAB', { format: 'png' }), (response) => {
+      if (signal?.aborted) {
+        reject(new Error('操作已中断。'));
+        return;
+      }
+
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      if (!response?.ok || typeof response?.dataUrl !== 'string') {
+        reject(new Error(response?.error || '截图失败'));
+        return;
+      }
+
+      resolve({
+        dataUrl: response.dataUrl,
+        mimeType: response.mimeType || 'image/png',
+      });
+    });
+  });
+}
+
+function loadImage(dataUrl: string, signal?: AbortSignal) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('操作已中断。'));
+      return;
+    }
+
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('截图图像解码失败'));
+    image.src = dataUrl;
+  });
+}
+
+function createCanvas(width: number, height: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  return canvas;
+}
+
+function downscaleCanvas(source: HTMLCanvasElement, scale: number) {
+  const nextScale = Math.max(0.1, Math.min(1, scale));
+  const nextCanvas = createCanvas(source.width * nextScale, source.height * nextScale);
+  const ctx = nextCanvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('无法创建截图画布上下文');
+  }
+
+  ctx.drawImage(source, 0, 0, nextCanvas.width, nextCanvas.height);
+  return nextCanvas;
+}
+
+function serializeScreenshotCanvas(sourceCanvas: HTMLCanvasElement) {
+  let canvas = sourceCanvas;
+  let dataUrl = canvas.toDataURL('image/png');
+  let mimeType = 'image/png';
+
+  if (dataUrl.length > MAX_SCREENSHOT_DATA_URL_LENGTH) {
+    dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    mimeType = 'image/jpeg';
+  }
+
+  let attempts = 0;
+  while (dataUrl.length > MAX_SCREENSHOT_DATA_URL_LENGTH && attempts < 3) {
+    const nextScale = Math.sqrt(MAX_SCREENSHOT_DATA_URL_LENGTH / dataUrl.length) * 0.95;
+    canvas = downscaleCanvas(canvas, nextScale);
+    dataUrl = canvas.toDataURL(mimeType, mimeType === 'image/jpeg' ? 0.88 : undefined);
+    attempts += 1;
+  }
+
+  return { canvas, dataUrl, mimeType };
+}
+
+function resolveTargetOrError(args: any, tool: ToolName, signal?: AbortSignal): Element | ToolResult {
+  const el = resolveTargetElement(args, signal);
+  if (el) return el;
+
+  let errorMsg = 'Target element not found. ';
+  if (args?.elementId) {
+    errorMsg += `elementId: ${args.elementId} 可能已过期，请重新用 query 或 findByText 查找`;
+  } else if (args?.selector) {
+    errorMsg += `选择器 "${args.selector}" 未找到元素`;
+  } else if (args?.targetText) {
+    errorMsg += `未找到与文本 "${args.targetText}" 匹配的目标元素`;
+  } else {
+    errorMsg += '请提供 elementId、selector 或 targetText';
+  }
+  return { ok: false, tool, error: errorMsg };
+}
+
+function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const prototype = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+  if (descriptor?.set) {
+    descriptor.set.call(el, value);
+  } else {
+    el.value = value;
+  }
+}
+
+function dispatchInputEvents(el: HTMLElement) {
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function dispatchKeyboardSequence(el: HTMLElement, key: string) {
+  const options = { key, bubbles: true, cancelable: true };
+  el.dispatchEvent(new KeyboardEvent('keydown', options));
+  el.dispatchEvent(new KeyboardEvent('keypress', options));
+  el.dispatchEvent(new KeyboardEvent('keyup', options));
+}
+
+function interactClick(el: Element) {
+  const htmlEl = el as HTMLElement;
+  htmlEl.scrollIntoView?.({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior });
+  htmlEl.focus?.();
+  htmlEl.click?.();
+}
+
+function interactType(el: Element, text: string, mode: 'replace' | 'append' = 'replace') {
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+    throw new Error('目标元素不是可输入控件');
+  }
+
+  el.focus();
+  const nextValue = mode === 'append' ? `${el.value}${text}` : text;
+  setNativeValue(el, nextValue);
+  dispatchInputEvents(el);
+  return nextValue;
+}
+
+function interactPress(el: Element, key: string) {
+  const htmlEl = el as HTMLElement;
+  htmlEl.focus?.();
+  dispatchKeyboardSequence(htmlEl, key);
+  if (key === 'Enter' && el instanceof HTMLInputElement && el.form) {
+    el.form.requestSubmit?.();
+  }
+}
+
+function interactSelectOption(el: Element, args: any) {
+  if (!(el instanceof HTMLSelectElement)) {
+    throw new Error('目标元素不是下拉选择框');
+  }
+
+  const value = typeof args?.value === 'string' ? args.value : undefined;
+  const label = typeof args?.label === 'string' ? args.label : undefined;
+  const option = Array.from(el.options).find((item) =>
+    value ? item.value === value : label ? item.label.trim() === label.trim() : false
+  );
+
+  if (!option) {
+    throw new Error('未找到匹配的下拉选项');
+  }
+
+  el.value = option.value;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return { value: option.value, label: option.label };
+}
+
+function tool_getPageInfo(signal?: AbortSignal): ToolResult<{ url: string; title: string }> {
+  assertNotAborted(signal);
   return {
     ok: true,
     tool: 'getPageInfo',
@@ -186,7 +626,8 @@ function tool_getPageInfo(): ToolResult<{ url: string; title: string }> {
   };
 }
 
-function tool_getVisibleText(): ToolResult<{ text: string }> {
+function tool_getVisibleText(signal?: AbortSignal): ToolResult<{ text: string }> {
+  assertNotAborted(signal);
   return {
     ok: true,
     tool: 'getVisibleText',
@@ -195,7 +636,8 @@ function tool_getVisibleText(): ToolResult<{ text: string }> {
   };
 }
 
-function tool_query(args: any): ToolResult<{ elements: ElementSummary[] }> {
+function tool_query(args: any, signal?: AbortSignal): ToolResult<{ elements: ElementSummary[] }> {
+  assertNotAborted(signal);
   const selector = (args?.selector as string | undefined)?.trim();
   if (!selector) {
     return { ok: false, tool: 'query', error: `${TOOL_ERRORS.MISSING_REQUIRED_PARAM}: selector` };
@@ -233,54 +675,13 @@ function tool_query(args: any): ToolResult<{ elements: ElementSummary[] }> {
   }
 }
 
-function tool_findByText(args: any): ToolResult<{ elements: ElementSummary[] }> {
+function tool_findByText(args: any, signal?: AbortSignal): ToolResult<{ elements: ElementSummary[] }> {
+  assertNotAborted(signal);
   const text = (args?.text as string | undefined)?.trim();
   if (!text) return { ok: false, tool: 'findByText', error: 'Missing text' };
 
   const role = (args?.role as string | undefined)?.toLowerCase();
-  const wanted = text.toLowerCase();
-  const scored: Array<{ el: Element; score: number }> = [];
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
-
-  let n: Node | null = walker.nextNode();
-  while (n) {
-    const el = n as Element;
-    if (!isElementVisible(el)) {
-      n = walker.nextNode();
-      continue;
-    }
-    if (role === 'button' && !isButtonLike(el)) {
-      n = walker.nextNode();
-      continue;
-    }
-
-    const htmlEl = el as HTMLElement;
-    const inner = (htmlEl.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-    const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
-    const title = (el.getAttribute('title') || '').trim().toLowerCase();
-    const placeholder = (el.getAttribute('placeholder') || '').trim().toLowerCase();
-    const value =
-      el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
-        ? (el.value || '').trim().toLowerCase()
-        : '';
-    const name = (el.getAttribute('name') || '').trim().toLowerCase();
-    const label = (getLabelText(el) || '').trim().toLowerCase();
-
-    const fields = [inner, aria, title, placeholder, label, name, value].filter(Boolean);
-    const hay = fields.join(' | ');
-    if (hay.includes(wanted)) {
-      let score = 0;
-      for (const field of fields) {
-        if (field === wanted) score = Math.max(score, 100);
-        else if (field.startsWith(wanted)) score = Math.max(score, 80);
-        else if (field.includes(wanted)) score = Math.max(score, 60);
-      }
-      if (role === 'button' && isButtonLike(el)) score += 10;
-      scored.push({ el, score });
-    }
-
-    n = walker.nextNode();
-  }
+  const scored = findScoredElementsByText(text, role, signal);
 
   const elements = scored
     .sort((a, b) => b.score - a.score)
@@ -294,20 +695,13 @@ function tool_findByText(args: any): ToolResult<{ elements: ElementSummary[] }> 
 }
 
 function tool_getValue(
-  args: any
+  args: any,
+  signal?: AbortSignal
 ): ToolResult<{ value?: string; text?: string; checked?: boolean; attribute?: string }> {
-  const el = resolveTargetElement(args);
-  if (!el) {
-    let errorMsg = 'Target element not found. ';
-    if (args?.elementId) {
-      errorMsg += `elementId: ${args.elementId} 可能已过期，请重新用 query 或 findByText 查找`;
-    } else if (args?.selector) {
-      errorMsg += `选择器 "${args.selector}" 未找到元素`;
-    } else {
-      errorMsg += '请提供 elementId 或 selector';
-    }
-    return { ok: false, tool: 'getValue', error: errorMsg };
-  }
+  assertNotAborted(signal);
+  const resolved = resolveTargetOrError(args, 'getValue', signal);
+  if ('ok' in resolved) return resolved;
+  const el = resolved;
 
   const attr = args.attribute;
   if (attr) {
@@ -350,27 +744,375 @@ function tool_getValue(
   };
 }
 
-export async function executeTool(call: ToolCall): Promise<ToolResult> {
+function tool_inspectElement(args: any, signal?: AbortSignal): ToolResult<InspectElementData> {
+  assertNotAborted(signal);
+  const resolved = resolveTargetOrError(args, 'inspectElement', signal);
+  if ('ok' in resolved) return resolved;
+  const el = resolved;
+
+  const inputEl = el as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+  const htmlEl = el as HTMLElement;
+
+  return {
+    ok: true,
+    tool: 'inspectElement',
+    data: {
+      element: summarizeStoredElement(el),
+      value: getElementValue(el),
+      checked: el instanceof HTMLInputElement ? el.checked : undefined,
+      disabled: 'disabled' in inputEl ? Boolean(inputEl.disabled) : undefined,
+      required: 'required' in inputEl ? Boolean((inputEl as any).required) : undefined,
+      readonly: el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.readOnly : undefined,
+      multiple: el instanceof HTMLSelectElement ? el.multiple : undefined,
+      href: el instanceof HTMLAnchorElement ? el.href : undefined,
+      options: getSelectOptions(el),
+      nearbyText: getNearbyText(htmlEl),
+    },
+    observations: makeObservations(),
+  };
+}
+
+function tool_interact(args: any, signal?: AbortSignal): ToolResult<InteractResultData> {
+  assertNotAborted(signal);
+  const action = (args?.action as InteractAction | undefined) || 'click';
+  const resolved = resolveTargetOrError(
+    {
+      ...args,
+      targetRole:
+        args?.targetRole ||
+        (args?.targetText
+          ? action === 'click'
+            ? 'button'
+            : action === 'type' || action === 'selectOption' || action === 'press'
+              ? 'field'
+              : undefined
+          : undefined),
+    },
+    'interact',
+    signal
+  );
+  if ('ok' in resolved) return resolved;
+  const el = resolved;
+
+  const before = snapshotState();
+  const target = summarizeStoredElement(el);
+  const result: InteractResultData = {
+    action,
+    target,
+    success: true,
+  };
+
+  switch (action) {
+    case 'click':
+      interactClick(el);
+      break;
+    case 'type': {
+      const text = typeof args?.text === 'string' ? args.text : '';
+      if (!text) {
+        return { ok: false, tool: 'interact', error: `${TOOL_ERRORS.MISSING_REQUIRED_PARAM}: text` };
+      }
+      const mode = args?.mode === 'append' ? 'append' : 'replace';
+      result.valuePreview = truncateText(interactType(el, text, mode), 120);
+      break;
+    }
+    case 'press': {
+      const key = typeof args?.key === 'string' ? args.key : '';
+      if (!key) {
+        return { ok: false, tool: 'interact', error: `${TOOL_ERRORS.MISSING_REQUIRED_PARAM}: key` };
+      }
+      interactPress(el, key);
+      result.key = key;
+      break;
+    }
+    case 'selectOption': {
+      const selected = interactSelectOption(el, args);
+      result.selectedValue = selected.value;
+      result.selectedLabel = selected.label;
+      result.valuePreview = truncateText(selected.label || selected.value, 120);
+      break;
+    }
+    default:
+      return { ok: false, tool: 'interact', error: `Unsupported action: ${String(action)}` };
+  }
+
+  const after = snapshotState();
+  result.urlChanged = before.url !== after.url;
+  result.domChanged = before.visibleTextHash !== after.visibleTextHash;
+
+  return {
+    ok: true,
+    tool: 'interact',
+    data: result,
+    observations: makeObservations(),
+  };
+}
+
+async function tool_waitFor(args: any, signal?: AbortSignal): Promise<ToolResult<WaitForResultData>> {
+  assertNotAborted(signal);
+  const selector = typeof args?.selector === 'string' ? args.selector.trim() : '';
+  const text = typeof args?.text === 'string' ? args.text.trim() : '';
+  const state = (args?.state as WaitForState | undefined) || 'appear';
+  const timeoutMs = Math.min(Math.max(Number(args?.timeoutMs) || 5000, 200), 15000);
+  const selectorType = (args?.selectorType as SelectorType | undefined) || 'css';
+
+  if (!selector && !text) {
+    return {
+      ok: false,
+      tool: 'waitFor',
+      error: 'waitFor requires selector or text',
+    };
+  }
+
+  const startedAt = now();
+  let stableSince = 0;
+  let lastStableFingerprint = '';
+
+  while (now() - startedAt < timeoutMs) {
+    assertNotAborted(signal);
+    let matched = false;
+
+    if (selector) {
+      try {
+        matched = resolveSelectorAll(selector, selectorType).some(isElementVisible);
+      } catch (error) {
+        return {
+          ok: false,
+          tool: 'waitFor',
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    } else if (text) {
+      matched = document.body.innerText.toLowerCase().includes(text.toLowerCase());
+    }
+
+    if (state === 'appear' && matched) {
+      return {
+        ok: true,
+        tool: 'waitFor',
+        data: {
+          matched: true,
+          elapsedMs: now() - startedAt,
+          condition: selector ? `selector:${selector}` : `text:${text}`,
+        },
+        observations: makeObservations(),
+      };
+    }
+
+    if (state === 'disappear' && !matched) {
+      return {
+        ok: true,
+        tool: 'waitFor',
+        data: {
+          matched: true,
+          elapsedMs: now() - startedAt,
+          condition: selector ? `selector:${selector}` : `text:${text}`,
+        },
+        observations: makeObservations(),
+      };
+    }
+
+    if (state === 'stable') {
+      const fingerprint = `${matched}:${makeObservations()?.visibleTextHash || ''}`;
+      if (fingerprint === lastStableFingerprint) {
+        if (!stableSince) stableSince = now();
+        if (now() - stableSince >= 800) {
+          return {
+            ok: true,
+            tool: 'waitFor',
+            data: {
+              matched: true,
+              elapsedMs: now() - startedAt,
+              condition: selector ? `stable-selector:${selector}` : `stable-text:${text}`,
+            },
+            observations: makeObservations(),
+          };
+        }
+      } else {
+        lastStableFingerprint = fingerprint;
+        stableSince = now();
+      }
+    }
+
+    await sleep(200, signal);
+  }
+
+  return {
+    ok: false,
+    tool: 'waitFor',
+    error: `waitFor timeout after ${timeoutMs}ms`,
+    observations: makeObservations(),
+  };
+}
+
+async function tool_screenshotPage(
+  args: any,
+  signal?: AbortSignal
+): Promise<ToolResult<ScreenshotResultData>> {
+  assertNotAborted(signal);
+  const mode = args?.mode === 'viewport' ? 'viewport' : 'fullpage';
+  const initialMetrics = getPageMetrics();
+  const originalScrollX = initialMetrics.scrollX;
+  const originalScrollY = initialMetrics.scrollY;
+
+  try {
+    if (mode === 'viewport') {
+      const capture = await requestVisibleTabCapture(signal);
+      const image = await loadImage(capture.dataUrl, signal);
+      return {
+        ok: true,
+        tool: 'screenshotPage',
+        data: {
+          mode,
+          mimeType: capture.mimeType,
+          dataUrl: capture.dataUrl,
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+          originalWidth: image.naturalWidth,
+          originalHeight: image.naturalHeight,
+          scale: 1,
+          tileCount: 1,
+        },
+        observations: makeObservations(),
+      };
+    }
+
+    const xPlan = buildCapturePlan(initialMetrics.pageWidth, initialMetrics.viewportWidth);
+    const yPlan = buildCapturePlan(initialMetrics.pageHeight, initialMetrics.viewportHeight);
+    const tileCount = xPlan.length * yPlan.length;
+
+    if (tileCount > 80) {
+      return {
+        ok: false,
+        tool: 'screenshotPage',
+        error: `页面过大，当前需要 ${tileCount} 张分片截图，已超过上限`,
+        observations: makeObservations(),
+      };
+    }
+
+    const firstCapturePosition = { left: xPlan[0]?.captureStart || 0, top: yPlan[0]?.captureStart || 0 };
+    window.scrollTo({
+      left: firstCapturePosition.left,
+      top: firstCapturePosition.top,
+      behavior: 'instant' as ScrollBehavior,
+    });
+    await waitForNextPaint(signal);
+
+    const firstCapture = await requestVisibleTabCapture(signal);
+    const firstImage = await loadImage(firstCapture.dataUrl, signal);
+    const rawScaleX = firstImage.naturalWidth / Math.max(1, initialMetrics.viewportWidth);
+    const rawScaleY = firstImage.naturalHeight / Math.max(1, initialMetrics.viewportHeight);
+    const rawWidth = Math.max(1, Math.round(initialMetrics.pageWidth * rawScaleX));
+    const rawHeight = Math.max(1, Math.round(initialMetrics.pageHeight * rawScaleY));
+    const downscale = Math.min(
+      1,
+      MAX_SCREENSHOT_DIMENSION / rawWidth,
+      MAX_SCREENSHOT_DIMENSION / rawHeight
+    );
+
+    const canvas = createCanvas(rawWidth * downscale, rawHeight * downscale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('无法创建截图画布上下文');
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let capturedTiles = 0;
+
+    for (const row of yPlan) {
+      for (const column of xPlan) {
+        assertNotAborted(signal);
+        window.scrollTo({
+          left: column.captureStart,
+          top: row.captureStart,
+          behavior: 'instant' as ScrollBehavior,
+        });
+        await waitForNextPaint(signal);
+
+        const capture = capturedTiles === 0 ? firstCapture : await requestVisibleTabCapture(signal);
+        const image = capturedTiles === 0 ? firstImage : await loadImage(capture.dataUrl, signal);
+
+        const sourceX = Math.round(column.cropStart * rawScaleX);
+        const sourceY = Math.round(row.cropStart * rawScaleY);
+        const sourceWidth = Math.max(1, Math.round(column.drawSize * rawScaleX));
+        const sourceHeight = Math.max(1, Math.round(row.drawSize * rawScaleY));
+        const destX = Math.round(column.drawStart * rawScaleX * downscale);
+        const destY = Math.round(row.drawStart * rawScaleY * downscale);
+        const destWidth = Math.max(1, Math.round(sourceWidth * downscale));
+        const destHeight = Math.max(1, Math.round(sourceHeight * downscale));
+
+        ctx.drawImage(
+          image,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          destX,
+          destY,
+          destWidth,
+          destHeight
+        );
+
+        capturedTiles += 1;
+      }
+    }
+
+    const serialized = serializeScreenshotCanvas(canvas);
+
+    return {
+      ok: true,
+      tool: 'screenshotPage',
+      data: {
+        mode,
+        mimeType: serialized.mimeType,
+        dataUrl: serialized.dataUrl,
+        width: serialized.canvas.width,
+        height: serialized.canvas.height,
+        originalWidth: rawWidth,
+        originalHeight: rawHeight,
+        scale: Number((serialized.canvas.width / rawWidth).toFixed(4)),
+        tileCount: capturedTiles,
+      },
+      observations: makeObservations(),
+    };
+  } finally {
+    window.scrollTo({
+      left: originalScrollX,
+      top: originalScrollY,
+      behavior: 'instant' as ScrollBehavior,
+    });
+  }
+}
+
+export async function executeTool(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
   const tool = call.tool as ToolName;
   const args = call.args || {};
 
   try {
     switch (tool) {
       case 'getPageInfo':
-        return tool_getPageInfo();
+        return tool_getPageInfo(signal);
       case 'getVisibleText':
-        return tool_getVisibleText();
+        return tool_getVisibleText(signal);
       case 'query':
-        return tool_query(args);
+        return tool_query(args, signal);
       case 'findByText':
-        return tool_findByText(args);
+        return tool_findByText(args, signal);
       case 'getValue':
-        return tool_getValue(args);
+        return tool_getValue(args, signal);
+      case 'inspectElement':
+        return tool_inspectElement(args, signal);
+      case 'interact':
+        return tool_interact(args, signal);
+      case 'waitFor':
+        return await tool_waitFor(args, signal);
+      case 'screenshotPage':
+        return await tool_screenshotPage(args, signal);
       default:
         return {
           ok: false,
           tool,
-          error: `Tool "${String(tool)}" has been removed. Only read-only tools are available.`,
+          error: `Tool "${String(tool)}" is not available in automation mode.`,
         };
     }
   } catch (error) {

@@ -2,7 +2,7 @@
  * Content Script 入口
  */
 
-import type { ExecuteToolMessage, Message, PageContext } from '@/shared/types';
+import type { AbortToolMessage, ExecuteToolMessage, Message, PageContext } from '@/shared/types';
 import { onMessage, createMessage } from '@/shared/utils/message-bridge';
 import { extractPageContext } from './text-extractor';
 import { SelectionHandler } from './selection-handler';
@@ -52,6 +52,12 @@ const selectionHandler = new SelectionHandler({
 
 selectionHandler.init();
 
+const activeToolControllers = new Map<string, AbortController>();
+
+function getToolExecutionKey(runId: string, stepId: string) {
+  return `${runId}:${stepId}`;
+}
+
 // 监听来自 background 或 sidepanel 的消息
 onMessage((message: Message, _sender, sendResponse) => {
   console.log('Content script received message:', message.type);
@@ -63,6 +69,10 @@ onMessage((message: Message, _sender, sendResponse) => {
 
     case 'EXECUTE_TOOL':
       handleExecuteTool(message as ExecuteToolMessage, sendResponse);
+      return true;
+
+    case 'ABORT_TOOL':
+      handleAbortTool(message as AbortToolMessage, sendResponse);
       return true;
 
     default:
@@ -97,9 +107,13 @@ function handleGetPageContext(
 }
 
 async function handleExecuteTool(message: ExecuteToolMessage, sendResponse: (response: any) => void) {
+  const { runId, stepId, call } = message.payload;
+  const key = getToolExecutionKey(runId, stepId);
+  const controller = new AbortController();
+  activeToolControllers.set(key, controller);
+
   try {
-    const { runId, stepId, call } = message.payload;
-    const result = await executeTool(call);
+    const result = await executeTool(call, controller.signal);
     sendResponse(createMessage('TOOL_RESULT', { runId, stepId, result }));
   } catch (error) {
     sendResponse({
@@ -108,7 +122,20 @@ async function handleExecuteTool(message: ExecuteToolMessage, sendResponse: (res
         error: error instanceof Error ? error.message : 'Unknown error',
       },
     });
+  } finally {
+    activeToolControllers.delete(key);
   }
+}
+
+function handleAbortTool(message: AbortToolMessage, sendResponse: (response: any) => void) {
+  const { runId, stepId } = message.payload;
+  const key = getToolExecutionKey(runId, stepId);
+  const controller = activeToolControllers.get(key);
+  if (controller) {
+    controller.abort();
+    activeToolControllers.delete(key);
+  }
+  sendResponse({ ok: true });
 }
 
 // 快捷键：Ctrl+Shift+R 刷新页面内容（通知 sidepanel）

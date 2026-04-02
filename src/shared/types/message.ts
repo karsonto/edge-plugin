@@ -15,7 +15,9 @@ export type MessageType =
   | 'AI_RESPONSE_END'         // AI 响应结束
   | 'AI_RESPONSE_ERROR'       // AI 响应错误
   | 'EXECUTE_TOOL'            // background -> content 执行工具
+  | 'ABORT_TOOL'              // 终止正在执行的工具
   | 'TOOL_RESULT'             // content -> background 工具执行结果
+  | 'CAPTURE_VISIBLE_TAB'     // content -> background 捕获当前视口截图
   | 'SAVE_SETTINGS'           // 保存设置
   | 'LOAD_SETTINGS'           // 加载设置
   | 'SETTINGS_RESPONSE'       // 设置响应
@@ -111,6 +113,22 @@ export interface ToolResultMessage extends BaseMessage {
   };
 }
 
+export interface AbortToolMessage extends BaseMessage {
+  type: 'ABORT_TOOL';
+  payload: {
+    runId: string;
+    stepId: string;
+  };
+}
+
+export interface CaptureVisibleTabMessage extends BaseMessage {
+  type: 'CAPTURE_VISIBLE_TAB';
+  payload?: {
+    format?: 'png' | 'jpeg';
+    quality?: number;
+  };
+}
+
 export interface SaveSettingsMessage extends BaseMessage {
   type: 'SAVE_SETTINGS';
   payload: any;
@@ -139,7 +157,9 @@ export type Message =
   | AIResponseEndMessage
   | AIResponseErrorMessage
   | ExecuteToolMessage
+  | AbortToolMessage
   | ToolResultMessage
+  | CaptureVisibleTabMessage
   | SaveSettingsMessage
   | LoadSettingsMessage
   | SettingsResponseMessage

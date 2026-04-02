@@ -103,7 +103,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     customEndpoint:
       import.meta.env.VITE_DEFAULT_CUSTOM_ENDPOINT ||
       'http://localhost:8080/v1/chat/completions',
-    enableFunctionCalling: false, // 历史字段名，当前用于控制只读工具模式
+    enableFunctionCalling: false, // 历史字段名，当前用于控制浏览器自动化模式
   },
   quickActions: DEFAULT_QUICK_ACTIONS,
   ui: {
