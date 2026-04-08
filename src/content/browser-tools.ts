@@ -8,6 +8,7 @@ import type {
   InspectElementData,
   InteractAction,
   InteractResultData,
+  ScreenshotOwnerIframeInfo,
   SelectedScreenshotTarget,
   ScreenshotResultData,
   SelectorType,
@@ -543,6 +544,18 @@ function getContainerTargetInfo(element: HTMLElement): SelectedScreenshotTarget 
   };
 }
 
+function toOwnerIframeInfo(iframe: HTMLIFrameElement): ScreenshotOwnerIframeInfo {
+  const info = getIframeTargetInfo(iframe);
+  return {
+    elementId: info.elementId,
+    selectorHint: info.selectorHint,
+    rect: info.rect,
+    src: info.src,
+    name: info.name,
+    sameOrigin: info.sameOrigin,
+  };
+}
+
 function getIframeTargetInfo(iframe: HTMLIFrameElement): SelectedScreenshotTarget {
   let sameOrigin = false;
   try {
@@ -638,6 +651,23 @@ function getContainerMetrics(element: HTMLElement) {
     viewportHeight: Math.max(1, element.clientHeight),
     scrollX: element.scrollLeft,
     scrollY: element.scrollTop,
+  };
+}
+
+function getContainerOwnerIframe(element: HTMLElement): HTMLIFrameElement | null {
+  const frameElement = element.ownerDocument.defaultView?.frameElement;
+  return frameElement instanceof HTMLIFrameElement ? frameElement : null;
+}
+
+function getContainerRectInTopViewport(element: HTMLElement, ownerIframe: HTMLIFrameElement) {
+  const ownerRect = ownerIframe.getBoundingClientRect();
+  const innerRect = element.getBoundingClientRect();
+
+  return {
+    left: ownerRect.left + innerRect.left,
+    top: ownerRect.top + innerRect.top,
+    width: innerRect.width,
+    height: innerRect.height,
   };
 }
 
@@ -961,6 +991,189 @@ async function captureContainerFullpage(
 
         const sourceX = Math.round(Math.max(0, rect.left) * pageScaleX + column.cropStart * (cropSourceWidth / Math.max(1, metrics.viewportWidth)));
         const sourceY = Math.round(Math.max(0, rect.top) * pageScaleY + row.cropStart * (cropSourceHeight / Math.max(1, metrics.viewportHeight)));
+        const sourceWidth = Math.max(1, Math.round(column.drawSize * (cropSourceWidth / Math.max(1, metrics.viewportWidth))));
+        const sourceHeight = Math.max(1, Math.round(row.drawSize * (cropSourceHeight / Math.max(1, metrics.viewportHeight))));
+        const destX = Math.round(column.drawStart * (cropSourceWidth / Math.max(1, metrics.viewportWidth)) * downscale);
+        const destY = Math.round(row.drawStart * (cropSourceHeight / Math.max(1, metrics.viewportHeight)) * downscale);
+        const destWidth = Math.max(1, Math.round(sourceWidth * downscale));
+        const destHeight = Math.max(1, Math.round(sourceHeight * downscale));
+
+        ctx.drawImage(
+          image,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          destX,
+          destY,
+          destWidth,
+          destHeight
+        );
+
+        capturedTiles += 1;
+      }
+    }
+
+    const serialized = serializeScreenshotCanvas(canvas);
+    return {
+      ok: true,
+      tool: 'screenshotPage',
+      data: {
+        mode,
+        targetType: 'container',
+        mimeType: serialized.mimeType,
+        dataUrl: serialized.dataUrl,
+        width: serialized.canvas.width,
+        height: serialized.canvas.height,
+        originalWidth: rawWidth,
+        originalHeight: rawHeight,
+        scale: Number((serialized.canvas.width / rawWidth).toFixed(4)),
+        tileCount: capturedTiles,
+        targetInfo,
+      },
+      observations: makeObservations(),
+    };
+  } finally {
+    scrollContainerTo(element, originalScrollX, originalScrollY);
+  }
+}
+
+async function captureContainerInsideIframeFullpage(
+  element: HTMLElement,
+  ownerIframe: HTMLIFrameElement,
+  mode: 'fullpage' | 'viewport',
+  signal?: AbortSignal
+): Promise<ToolResult<ScreenshotResultData>> {
+  const ownerContext = getIframeContextOrError(ownerIframe);
+  if ('error' in ownerContext) {
+    return {
+      ok: false,
+      tool: 'screenshotPage',
+      error: ownerContext.error,
+      observations: makeObservations(),
+    };
+  }
+
+  const rect = getContainerRectInTopViewport(element, ownerIframe);
+  if (rect.width <= 0 || rect.height <= 0) {
+    return {
+      ok: false,
+      tool: 'screenshotPage',
+      error: '目标容器当前不可见，无法截图',
+      observations: makeObservations(),
+    };
+  }
+
+  const metrics = getContainerMetrics(element);
+  const originalScrollX = metrics.scrollX;
+  const originalScrollY = metrics.scrollY;
+  const targetInfo: SelectedScreenshotTarget = {
+    ...metrics.targetInfo,
+    ownerIframeElementId: getElementId(ownerIframe),
+    ownerIframeInfo: toOwnerIframeInfo(ownerIframe),
+  };
+
+  try {
+    if (mode === 'viewport') {
+      const capture = await requestVisibleTabCapture(signal);
+      const image = await loadImage(capture.dataUrl, signal);
+      const pageMetrics = getPageMetrics();
+      const scaleX = image.naturalWidth / Math.max(1, pageMetrics.viewportWidth);
+      const scaleY = image.naturalHeight / Math.max(1, pageMetrics.viewportHeight);
+      const cropCanvas = createCanvas(rect.width * scaleX, rect.height * scaleY);
+
+      drawCroppedImageToCanvas(
+        image,
+        cropCanvas,
+        {
+          left: Math.round(Math.max(0, rect.left) * scaleX),
+          top: Math.round(Math.max(0, rect.top) * scaleY),
+          width: Math.round(Math.min(rect.width, pageMetrics.viewportWidth - Math.max(0, rect.left)) * scaleX),
+          height: Math.round(Math.min(rect.height, pageMetrics.viewportHeight - Math.max(0, rect.top)) * scaleY),
+        },
+        {
+          left: 0,
+          top: 0,
+          width: cropCanvas.width,
+          height: cropCanvas.height,
+        }
+      );
+
+      const serialized = serializeScreenshotCanvas(cropCanvas);
+      return {
+        ok: true,
+        tool: 'screenshotPage',
+        data: {
+          mode,
+          targetType: 'container',
+          mimeType: serialized.mimeType,
+          dataUrl: serialized.dataUrl,
+          width: serialized.canvas.width,
+          height: serialized.canvas.height,
+          originalWidth: cropCanvas.width,
+          originalHeight: cropCanvas.height,
+          scale: 1,
+          tileCount: 1,
+          targetInfo,
+        },
+        observations: makeObservations(),
+      };
+    }
+
+    const xPlan = buildCapturePlan(metrics.pageWidth, metrics.viewportWidth);
+    const yPlan = buildCapturePlan(metrics.pageHeight, metrics.viewportHeight);
+    const tileCount = xPlan.length * yPlan.length;
+    if (tileCount > 80) {
+      return {
+        ok: false,
+        tool: 'screenshotPage',
+        error: `目标容器内容过大，当前需要 ${tileCount} 张分片截图，已超过上限`,
+        observations: makeObservations(),
+      };
+    }
+
+    if (!isScrollableContainer(element)) {
+      const viewportResult = await captureContainerInsideIframeFullpage(element, ownerIframe, 'viewport', signal);
+      if (viewportResult.ok && viewportResult.data) {
+        viewportResult.data.warning = '当前目标不是可滚动容器，已降级为当前可见区域截图';
+      }
+      return viewportResult;
+    }
+
+    scrollContainerTo(element, xPlan[0]?.captureStart || 0, yPlan[0]?.captureStart || 0);
+    await waitForNextPaint(signal);
+
+    const firstCapture = await requestVisibleTabCapture(signal);
+    const firstImage = await loadImage(firstCapture.dataUrl, signal);
+    const pageMetrics = getPageMetrics();
+    const pageScaleX = firstImage.naturalWidth / Math.max(1, pageMetrics.viewportWidth);
+    const pageScaleY = firstImage.naturalHeight / Math.max(1, pageMetrics.viewportHeight);
+    const cropSourceWidth = Math.max(1, Math.round(rect.width * pageScaleX));
+    const cropSourceHeight = Math.max(1, Math.round(rect.height * pageScaleY));
+    const rawWidth = Math.max(1, Math.round(metrics.pageWidth * (cropSourceWidth / Math.max(1, metrics.viewportWidth))));
+    const rawHeight = Math.max(1, Math.round(metrics.pageHeight * (cropSourceHeight / Math.max(1, metrics.viewportHeight))));
+    const downscale = Math.min(1, MAX_SCREENSHOT_DIMENSION / rawWidth, MAX_SCREENSHOT_DIMENSION / rawHeight);
+    const canvas = createCanvas(rawWidth * downscale, rawHeight * downscale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('无法创建截图画布上下文');
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    let capturedTiles = 0;
+    for (const row of yPlan) {
+      for (const column of xPlan) {
+        assertNotAborted(signal);
+        scrollContainerTo(element, column.captureStart, row.captureStart);
+        await waitForNextPaint(signal);
+
+        const capture = capturedTiles === 0 ? firstCapture : await requestVisibleTabCapture(signal);
+        const image = capturedTiles === 0 ? firstImage : await loadImage(capture.dataUrl, signal);
+        const nextRect = getContainerRectInTopViewport(element, ownerIframe);
+
+        const sourceX = Math.round(Math.max(0, nextRect.left) * pageScaleX + column.cropStart * (cropSourceWidth / Math.max(1, metrics.viewportWidth)));
+        const sourceY = Math.round(Math.max(0, nextRect.top) * pageScaleY + row.cropStart * (cropSourceHeight / Math.max(1, metrics.viewportHeight)));
         const sourceWidth = Math.max(1, Math.round(column.drawSize * (cropSourceWidth / Math.max(1, metrics.viewportWidth))));
         const sourceHeight = Math.max(1, Math.round(row.drawSize * (cropSourceHeight / Math.max(1, metrics.viewportHeight))));
         const destX = Math.round(column.drawStart * (cropSourceWidth / Math.max(1, metrics.viewportWidth)) * downscale);
@@ -1513,6 +1726,11 @@ async function tool_screenshotPage(
         error: '当前选中的目标不支持截图，请重新选择可见元素',
         observations: makeObservations(),
       };
+    }
+
+    const ownerIframe = getContainerOwnerIframe(targetElement);
+    if (ownerIframe) {
+      return captureContainerInsideIframeFullpage(targetElement, ownerIframe, mode, signal);
     }
 
     return captureContainerFullpage(targetElement, mode, signal);

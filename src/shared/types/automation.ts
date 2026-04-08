@@ -101,6 +101,15 @@ export interface ScreenshotResultData {
   targetInfo?: SelectedScreenshotTarget;
 }
 
+export interface ScreenshotOwnerIframeInfo {
+  elementId: string;
+  selectorHint?: string;
+  rect?: { x: number; y: number; width: number; height: number };
+  src?: string;
+  name?: string;
+  sameOrigin?: boolean;
+}
+
 export interface SelectedScreenshotTarget {
   elementId: string;
   tag: string;
@@ -110,6 +119,8 @@ export interface SelectedScreenshotTarget {
   src?: string;
   name?: string;
   sameOrigin?: boolean;
+  ownerIframeElementId?: string;
+  ownerIframeInfo?: ScreenshotOwnerIframeInfo;
 }
 
 

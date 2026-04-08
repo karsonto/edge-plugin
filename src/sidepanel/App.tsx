@@ -434,11 +434,26 @@ function App() {
 
             {selectedScreenshotTarget && (
               <div className="px-5 py-2 border-t border-gray-100 bg-indigo-50 text-xs text-indigo-700">
-                已选择{selectedScreenshotTarget.kind === 'iframe' ? ' iframe' : '滚动区域'}：
+                已选择
+                {selectedScreenshotTarget.kind === 'iframe'
+                  ? ' iframe'
+                  : selectedScreenshotTarget.ownerIframeElementId
+                    ? ' iframe 内滚动区域'
+                    : '滚动区域'}
+                ：
                 {selectedScreenshotTarget.name ||
                   selectedScreenshotTarget.src ||
                   selectedScreenshotTarget.selectorHint ||
                   selectedScreenshotTarget.elementId}
+                {selectedScreenshotTarget.ownerIframeInfo && (
+                  <>
+                    {' '}· 所属 iframe：
+                    {selectedScreenshotTarget.ownerIframeInfo.name ||
+                      selectedScreenshotTarget.ownerIframeInfo.src ||
+                      selectedScreenshotTarget.ownerIframeInfo.selectorHint ||
+                      selectedScreenshotTarget.ownerIframeInfo.elementId}
+                  </>
+                )}
                 {selectedScreenshotTarget.kind === 'iframe' && selectedScreenshotTarget.sameOrigin === false && '（跨域，截图将降级为页面可见区域）'}
               </div>
             )}

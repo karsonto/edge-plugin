@@ -124,6 +124,9 @@ function ToolLogCard({ toolLog }: { toolLog: NonNullable<MessageBubbleProps['too
               {screenshotMeta.targetType ? `，目标 ${screenshotMeta.targetType}` : ''}
               {screenshotMeta.targetInfo?.tag ? `，标签 ${screenshotMeta.targetInfo.tag}` : ''}
               {screenshotMeta.targetInfo?.selectorHint ? `，定位 ${screenshotMeta.targetInfo.selectorHint}` : ''}
+              {screenshotMeta.targetInfo?.ownerIframeInfo
+                ? `，所属 iframe ${screenshotMeta.targetInfo.ownerIframeInfo.name || screenshotMeta.targetInfo.ownerIframeInfo.src || screenshotMeta.targetInfo.ownerIframeInfo.selectorHint || screenshotMeta.targetInfo.ownerIframeInfo.elementId}`
+                : ''}
               {screenshotMeta.warning ? `，提示：${screenshotMeta.warning}` : ''}
             </div>
           )}

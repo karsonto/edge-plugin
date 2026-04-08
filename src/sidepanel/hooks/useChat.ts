@@ -119,7 +119,7 @@ export const useChat = create<ChatStore>((set, get) => {
         return `等待 \`${args.text || args.selector || '页面状态变化'}\``;
       case 'screenshotPage':
         return args.target === 'element' || args.elementId
-          ? `截图所选目标区域（${args.mode || 'fullpage'}）`
+          ? `截图所选${get().selectedScreenshotTarget?.ownerIframeElementId ? ' iframe 内目标区域' : '目标区域'}（${args.mode || 'fullpage'}）`
           : `截图页面（${args.mode || 'fullpage'}）`;
       default:
         return `执行工具 \`${toolName}\``;

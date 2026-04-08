@@ -174,7 +174,35 @@ function isScrollableContainer(element: Element): element is HTMLElement {
   return canScrollY || canScrollX;
 }
 
-function buildScreenshotTargetPayload(element: Element): SelectedScreenshotTarget {
+function buildIframeInfo(iframe: HTMLIFrameElement) {
+  let sameOrigin = false;
+  try {
+    sameOrigin = Boolean(iframe.contentDocument);
+  } catch {
+    sameOrigin = false;
+  }
+
+  return {
+    elementId: getOrCreateElementId(iframe),
+    selectorHint: iframe.id ? `#${iframe.id}` : undefined,
+    rect: {
+      x: iframe.getBoundingClientRect().x,
+      y: iframe.getBoundingClientRect().y,
+      width: iframe.getBoundingClientRect().width,
+      height: iframe.getBoundingClientRect().height,
+    },
+    src: iframe.getAttribute('src') || iframe.src || undefined,
+    name: iframe.getAttribute('name') || undefined,
+    sameOrigin,
+  };
+}
+
+function buildScreenshotTargetPayload(
+  element: Element,
+  options?: {
+    ownerIframe?: HTMLIFrameElement;
+  }
+): SelectedScreenshotTarget {
   const rect = element.getBoundingClientRect();
   const basePayload: SelectedScreenshotTarget = {
     elementId: getOrCreateElementId(element),
@@ -189,23 +217,60 @@ function buildScreenshotTargetPayload(element: Element): SelectedScreenshotTarge
     },
   };
 
-  if (element instanceof HTMLIFrameElement) {
-    let sameOrigin = false;
-    try {
-      sameOrigin = Boolean(element.contentDocument);
-    } catch {
-      sameOrigin = false;
-    }
+  if (options?.ownerIframe) {
+    const ownerIframeInfo = buildIframeInfo(options.ownerIframe);
+    basePayload.ownerIframeElementId = ownerIframeInfo.elementId;
+    basePayload.ownerIframeInfo = ownerIframeInfo;
+  }
 
+  if (element instanceof HTMLIFrameElement) {
     return {
       ...basePayload,
-      src: element.getAttribute('src') || element.src || undefined,
-      name: element.getAttribute('name') || undefined,
-      sameOrigin,
+      src: options?.ownerIframe ? undefined : element.getAttribute('src') || element.src || undefined,
+      name: options?.ownerIframe ? undefined : element.getAttribute('name') || undefined,
+      sameOrigin: options?.ownerIframe ? undefined : buildIframeInfo(element).sameOrigin,
     };
   }
 
   return basePayload;
+}
+
+function resolveScrollableTargetInDocument(
+  doc: Document,
+  clientX: number,
+  clientY: number
+): HTMLElement | null {
+  let target = doc.elementFromPoint(clientX, clientY);
+  while (target && target !== doc.documentElement) {
+    if (isScrollableContainer(target)) {
+      return target;
+    }
+    target = target.parentElement;
+  }
+  return null;
+}
+
+function resolveTargetInsideSameOriginIframe(
+  iframe: HTMLIFrameElement,
+  clientX: number,
+  clientY: number
+): Element | null {
+  try {
+    const frameDocument = iframe.contentDocument;
+    if (!frameDocument) {
+      return null;
+    }
+
+    const iframeRect = iframe.getBoundingClientRect();
+    const frameTarget = resolveScrollableTargetInDocument(
+      frameDocument,
+      clientX - iframeRect.left,
+      clientY - iframeRect.top
+    );
+    return frameTarget;
+  } catch {
+    return null;
+  }
 }
 
 function stopScreenshotTargetPicker() {
@@ -253,7 +318,7 @@ function handleStartScreenshotTargetPicker(
 
     while (target && target !== document.documentElement) {
       if (target instanceof HTMLIFrameElement) {
-        return target;
+        return resolveTargetInsideSameOriginIframe(target, clientX, clientY) || target;
       }
       if (isScrollableContainer(target)) {
         return target;
@@ -284,13 +349,21 @@ function handleStartScreenshotTargetPicker(
     event.stopPropagation();
     event.stopImmediatePropagation();
 
-    const payload = buildScreenshotTargetPayload(target);
+    const ownerIframe =
+      target instanceof HTMLElement && target.ownerDocument !== document
+        ? target.ownerDocument.defaultView?.frameElement instanceof HTMLIFrameElement
+          ? target.ownerDocument.defaultView.frameElement
+          : undefined
+        : undefined;
+    const payload = buildScreenshotTargetPayload(target, { ownerIframe });
     const successLabel =
       payload.kind === 'iframe'
         ? payload.sameOrigin
           ? '已选择 iframe'
           : '已选择跨域 iframe'
-        : '已选择滚动区域';
+        : payload.ownerIframeElementId
+          ? '已选择 iframe 内滚动区域'
+          : '已选择滚动区域';
     showRectHighlight(target.getBoundingClientRect(), successLabel, 1500);
     chrome.runtime.sendMessage(createMessage('SCREENSHOT_TARGET_PICKED', payload) as ScreenshotTargetPickedMessage, () => {
       if (chrome.runtime.lastError) {
