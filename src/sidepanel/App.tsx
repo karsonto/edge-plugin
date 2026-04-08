@@ -218,24 +218,31 @@ function App() {
       return;
     }
 
-    // 构建合并后的上下文
-    const combinedContext = buildCombinedContext();
-    
-    if (!combinedContext?.content) {
-      alert('无法获取内容，请刷新页面或上传文件后重试');
+    const aiConfigWithFC = { ...ai, enableFunctionCalling };
+
+    if (includePageContext) {
+      const combinedContext = buildCombinedContext();
+      if (!combinedContext?.content) {
+        alert('无法获取内容，请刷新页面或上传文件后重试');
+        return;
+      }
+
+      const prompt = replacePlaceholders(action.prompt, {
+        context: combinedContext.content,
+      });
+
+      setInputValue('');
+      sendMessage(prompt, aiConfigWithFC, combinedContext);
       return;
     }
 
-    // 替换提示词中的 {context}
     const prompt = replacePlaceholders(action.prompt, {
-      context: combinedContext.content,
+      context: '',
     });
 
     // 不预填输入框：快捷操作直接发送，不占用用户输入区
     setInputValue('');
-    const aiConfigWithFC = { ...ai, enableFunctionCalling };
-    // 传入合并后的上下文
-    sendMessage(prompt, aiConfigWithFC, combinedContext);
+    sendMessage(prompt, aiConfigWithFC, undefined);
   };
 
   // 处理刷新页面内容

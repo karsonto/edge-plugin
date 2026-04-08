@@ -34,7 +34,7 @@ export function QuickActionsConfig({
           快捷操作配置
         </h3>
         <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-          自定义快捷操作，配置提示词模板。点击快捷按钮时，会将提示词和页面内容发送给 AI。
+          自定义快捷操作，配置提示词模板。开启“携带网页内容”时，会将提示词和页面内容一起发送给 AI；关闭时，仅发送提示词模板本身。
           使用 <code className="px-1.5 py-0.5 bg-gray-100 rounded text-primary">{'{context}'}</code> 作为页面内容的占位符。
         </p>
 
