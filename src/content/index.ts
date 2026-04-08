@@ -2,12 +2,21 @@
  * Content Script 入口
  */
 
-import type { AbortToolMessage, ExecuteToolMessage, Message, PageContext } from '@/shared/types';
+import type {
+  AbortToolMessage,
+  CancelIframePickerMessage,
+  ExecuteToolMessage,
+  IframePickedMessage,
+  Message,
+  PageContext,
+  SelectedIframeTarget,
+  StartIframePickerMessage,
+} from '@/shared/types';
 import { onMessage, createMessage } from '@/shared/utils/message-bridge';
 import { extractPageContext } from './text-extractor';
 import { SelectionHandler } from './selection-handler';
-import { clearHighlight } from './overlay';
-import { executeTool } from './browser-tools';
+import { clearHighlight, showRectHighlight } from './overlay';
+import { executeTool, getOrCreateElementId } from './browser-tools';
 import { APP_NAME } from '@/shared/brand';
 
 console.log(`${APP_NAME} content script loaded`);
@@ -53,6 +62,7 @@ const selectionHandler = new SelectionHandler({
 selectionHandler.init();
 
 const activeToolControllers = new Map<string, AbortController>();
+let cleanupIframePicker: (() => void) | null = null;
 
 function getToolExecutionKey(runId: string, stepId: string) {
   return `${runId}:${stepId}`;
@@ -73,6 +83,14 @@ onMessage((message: Message, _sender, sendResponse) => {
 
     case 'ABORT_TOOL':
       handleAbortTool(message as AbortToolMessage, sendResponse);
+      return true;
+
+    case 'START_IFRAME_PICKER':
+      handleStartIframePicker(message as StartIframePickerMessage, sendResponse);
+      return true;
+
+    case 'CANCEL_IFRAME_PICKER':
+      handleCancelIframePicker(message as CancelIframePickerMessage, sendResponse);
       return true;
 
     default:
@@ -135,6 +153,125 @@ function handleAbortTool(message: AbortToolMessage, sendResponse: (response: any
     controller.abort();
     activeToolControllers.delete(key);
   }
+  sendResponse({ ok: true });
+}
+
+function buildIframePickPayload(iframe: HTMLIFrameElement): SelectedIframeTarget {
+  let sameOrigin = false;
+  try {
+    sameOrigin = Boolean(iframe.contentDocument);
+  } catch {
+    sameOrigin = false;
+  }
+
+  return {
+    elementId: getOrCreateElementId(iframe),
+    selectorHint: iframe.id ? `#${iframe.id}` : undefined,
+    rect: {
+      x: iframe.getBoundingClientRect().x,
+      y: iframe.getBoundingClientRect().y,
+      width: iframe.getBoundingClientRect().width,
+      height: iframe.getBoundingClientRect().height,
+    },
+    src: iframe.getAttribute('src') || iframe.src || undefined,
+    name: iframe.getAttribute('name') || undefined,
+    sameOrigin,
+  };
+}
+
+function stopIframePicker() {
+  cleanupIframePicker?.();
+  cleanupIframePicker = null;
+  clearHighlight();
+}
+
+function handleStartIframePicker(_message: StartIframePickerMessage, sendResponse: (response: any) => void) {
+  stopIframePicker();
+
+  const pickerOverlay = document.createElement('div');
+  pickerOverlay.style.position = 'fixed';
+  pickerOverlay.style.inset = '0';
+  pickerOverlay.style.zIndex = '2147483646';
+  pickerOverlay.style.cursor = 'crosshair';
+  pickerOverlay.style.background = 'rgba(99,102,241,0.02)';
+  pickerOverlay.style.pointerEvents = 'auto';
+
+  const pickerLabel = document.createElement('div');
+  pickerLabel.textContent = '点击要截图的 iframe，按 Esc 取消';
+  pickerLabel.style.position = 'fixed';
+  pickerLabel.style.top = '16px';
+  pickerLabel.style.left = '50%';
+  pickerLabel.style.transform = 'translateX(-50%)';
+  pickerLabel.style.zIndex = '2147483647';
+  pickerLabel.style.padding = '8px 12px';
+  pickerLabel.style.borderRadius = '9999px';
+  pickerLabel.style.background = 'rgba(17,24,39,0.92)';
+  pickerLabel.style.color = '#fff';
+  pickerLabel.style.fontSize = '12px';
+  pickerLabel.style.fontWeight = '600';
+  pickerLabel.style.pointerEvents = 'none';
+
+  document.documentElement.appendChild(pickerOverlay);
+  document.documentElement.appendChild(pickerLabel);
+
+  const getIframeAtPoint = (clientX: number, clientY: number) => {
+    pickerOverlay.style.pointerEvents = 'none';
+    const target = document.elementFromPoint(clientX, clientY);
+    pickerOverlay.style.pointerEvents = 'auto';
+    return target instanceof HTMLIFrameElement ? target : null;
+  };
+
+  const handleMove = (event: MouseEvent) => {
+    const iframe = getIframeAtPoint(event.clientX, event.clientY);
+    if (!iframe) {
+      clearHighlight();
+      return;
+    }
+    showRectHighlight(iframe.getBoundingClientRect(), '点击以选择 iframe', 10_000);
+  };
+
+  const handleClick = (event: MouseEvent) => {
+    const iframe = getIframeAtPoint(event.clientX, event.clientY);
+    if (!iframe) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+
+    const payload = buildIframePickPayload(iframe);
+    showRectHighlight(iframe.getBoundingClientRect(), payload.sameOrigin ? '已选择 iframe' : '跨域 iframe', 1500);
+    chrome.runtime.sendMessage(createMessage('IFRAME_PICKED', payload) as IframePickedMessage, () => {
+      if (chrome.runtime.lastError) {
+        // noop
+      }
+    });
+    stopIframePicker();
+  };
+
+  const handleKeydown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      stopIframePicker();
+    }
+  };
+
+  pickerOverlay.addEventListener('mousemove', handleMove, true);
+  pickerOverlay.addEventListener('click', handleClick, true);
+  window.addEventListener('keydown', handleKeydown, true);
+  cleanupIframePicker = () => {
+    pickerOverlay.removeEventListener('mousemove', handleMove, true);
+    pickerOverlay.removeEventListener('click', handleClick, true);
+    window.removeEventListener('keydown', handleKeydown, true);
+    pickerOverlay.remove();
+    pickerLabel.remove();
+  };
+
+  sendResponse({ ok: true });
+}
+
+function handleCancelIframePicker(_message: CancelIframePickerMessage, sendResponse: (response: any) => void) {
+  stopIframePicker();
   sendResponse({ ok: true });
 }
 
@@ -337,6 +474,7 @@ window.addEventListener('beforeunload', () => {
   if (domObserver) {
     domObserver.disconnect();
   }
+  stopIframePicker();
   selectionHandler.destroy();
   clearHighlight();
 });

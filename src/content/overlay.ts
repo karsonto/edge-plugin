@@ -52,10 +52,16 @@ export function clearHighlight() {
 }
 
 export function showHighlight(target: Element, label: string) {
+  showRectHighlight((target as HTMLElement).getBoundingClientRect?.(), label);
+}
+
+export function showRectHighlight(
+  rect: Pick<DOMRect, 'top' | 'left' | 'width' | 'height'> | undefined,
+  label: string,
+  ttlMs: number = HIGHLIGHT_TTL_MS
+) {
   ensureOverlay();
   if (!overlayEl || !overlayLabelEl) return;
-
-  const rect = (target as HTMLElement).getBoundingClientRect?.();
   if (!rect) return;
 
   const pad = 2;
@@ -76,7 +82,7 @@ export function showHighlight(target: Element, label: string) {
 
   // Auto-hide after TTL (reset on every highlight call)
   if (clearTimer != null) window.clearTimeout(clearTimer);
-  clearTimer = window.setTimeout(() => clearHighlight(), HIGHLIGHT_TTL_MS);
+  clearTimer = window.setTimeout(() => clearHighlight(), ttlMs);
 }
 
 

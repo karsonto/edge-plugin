@@ -121,6 +121,8 @@ function ToolLogCard({ toolLog }: { toolLog: NonNullable<MessageBubbleProps['too
               已生成截图占位信息：{screenshotMeta.width}x{screenshotMeta.height}
               {typeof screenshotMeta.tileCount === 'number' ? `，分片 ${screenshotMeta.tileCount}` : ''}
               {screenshotMeta.mode ? `，模式 ${screenshotMeta.mode}` : ''}
+              {screenshotMeta.targetType ? `，目标 ${screenshotMeta.targetType}` : ''}
+              {screenshotMeta.warning ? `，提示：${screenshotMeta.warning}` : ''}
             </div>
           )}
 

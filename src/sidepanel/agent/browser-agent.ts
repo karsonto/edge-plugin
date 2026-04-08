@@ -5,6 +5,7 @@ import type {
   ElementSummary,
   InspectElementData,
   InteractResultData,
+  SelectedIframeTarget,
   ScreenshotResultData,
   ToolCall,
   ToolResult,
@@ -19,11 +20,12 @@ const BROWSER_AGENT_SYSTEM_PROMPT = `你是浏览器自动化助手，负责读�
 2. 优先使用 findByText/query 获取 elementId，再使用 elementId 操作
 3. 对常见表单字段，优先直接使用 targetText + targetRole="field" 进行 inspectElement / interact / getValue
 4. 当需要视觉确认布局、图表、颜色、截图证据时，使用 screenshotPage；优先一次截图解决问题，不要反复整页读取
-5. 一次只执行一个动作工具
-6. 动作后必须验证结果，再决定下一步
-7. 不要重复读取整页，优先做局部检查
-8. 连续失败或无法确认页面状态时，停止并请求用户澄清
-9. 完成任务后，用简洁自然语言汇报结果`;
+5. 只有当用户已经明确选中了 iframe，才允许使用 screenshotPage 的 iframe 模式
+6. 一次只执行一个动作工具
+7. 动作后必须验证结果，再决定下一步
+8. 不要重复读取整页，优先做局部检查
+9. 连续失败或无法确认页面状态时，停止并请求用户澄清
+10. 完成任务后，用简洁自然语言汇报结果`;
 
 function normalizeCustomEndpoint(endpoint: string): string {
   try {
@@ -156,7 +158,7 @@ function summarizeToolResult(result: ToolResult): string {
     }
     case 'screenshotPage': {
       const data = result.data as ScreenshotResultData | undefined;
-      return `screenshotPage: ${data?.mode || 'fullpage'} ${data?.width || 0}x${data?.height || 0} tiles=${data?.tileCount || 0} scale=${data?.scale || 1}`;
+      return `screenshotPage: ${data?.targetType || 'page'} ${data?.mode || 'fullpage'} ${data?.width || 0}x${data?.height || 0} tiles=${data?.tileCount || 0} scale=${data?.scale || 1}${data?.warning ? ` warning=${truncateText(data.warning, 80)}` : ''}`;
     }
     default:
       return `${result.tool}: ok`;
@@ -214,6 +216,7 @@ function createTool(
   parameters: AgentTool['parameters'],
   options?: {
     multimodal?: boolean;
+    getDefaultArgs?: () => Record<string, any> | undefined;
   }
 ) : AgentTool {
   return {
@@ -226,7 +229,11 @@ function createTool(
         params && typeof params === 'object' && !Array.isArray(params)
           ? (params as Record<string, any>)
           : {};
-      const args = Object.keys(normalizedArgs).length > 0 ? normalizedArgs : undefined;
+      const mergedArgs = {
+        ...(options?.getDefaultArgs?.() || {}),
+        ...normalizedArgs,
+      };
+      const args = Object.keys(mergedArgs).length > 0 ? mergedArgs : undefined;
       const result = await executeBrowserTool({ tool: name, args }, signal);
       const content =
         options?.multimodal && result.ok
@@ -243,7 +250,10 @@ function createTool(
   };
 }
 
-function createBrowserAgentTools(allowScreenshots: boolean): AgentTool[] {
+function createBrowserAgentTools(
+  allowScreenshots: boolean,
+  getSelectedIframeTarget?: () => SelectedIframeTarget | null
+): AgentTool[] {
   return [
     createTool('getPageInfo', 'Get Page Info', '获取当前页面的 URL 和标题', Type.Object({})),
     createTool(
@@ -339,11 +349,25 @@ function createBrowserAgentTools(allowScreenshots: boolean): AgentTool[] {
           createTool(
             'screenshotPage',
             'Screenshot Page',
-            '截图当前页面。默认 fullpage，适合把页面视觉内容作为图片提供给模型',
+            '截图当前页面或用户已选中的 iframe。默认 fullpage，适合把页面视觉内容作为图片提供给模型',
             Type.Object({
               mode: Type.Optional(Type.Union([Type.Literal('fullpage'), Type.Literal('viewport')])),
+              target: Type.Optional(Type.Union([Type.Literal('page'), Type.Literal('iframe')])),
+              iframeElementId: Type.Optional(Type.String()),
             }),
-            { multimodal: true }
+            {
+              multimodal: true,
+              getDefaultArgs: () => {
+                const selectedIframe = getSelectedIframeTarget?.();
+                if (!selectedIframe) {
+                  return undefined;
+                }
+                return {
+                  target: 'iframe',
+                  iframeElementId: selectedIframe.elementId,
+                };
+              },
+            }
           ),
         ]
       : []),
@@ -382,14 +406,15 @@ function pruneMessages(messages: any[]) {
 export function createBrowserAgent(
   config: AIConfig,
   getInjectedContext: () => string | null,
-  previousMessages?: any[]
+  previousMessages?: any[],
+  getSelectedIframeTarget?: () => SelectedIframeTarget | null
 ) {
   const model = createModelFromConfig(config);
   return new Agent({
     initialState: {
       systemPrompt: BROWSER_AGENT_SYSTEM_PROMPT,
       model,
-      tools: createBrowserAgentTools(modelSupportsImageInput(model)),
+      tools: createBrowserAgentTools(modelSupportsImageInput(model), getSelectedIframeTarget),
       messages: pruneMessages(previousMessages || []),
     },
     transformContext: async (messages) => {

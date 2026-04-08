@@ -10,7 +10,7 @@ import { useFileContext } from './hooks/useFileContext';
 import { replacePlaceholders } from '@/shared/utils/text-processor';
 import { SUPPORTED_EXTENSIONS } from '@/shared/utils/file-parser';
 import { APP_NAME } from '@/shared/brand';
-import { Rocket, RefreshCw, Trash2, Maximize2 } from 'lucide-react';
+import { Rocket, RefreshCw, Trash2, Maximize2, Frame } from 'lucide-react';
 import { BottomSheet } from './components/shared/BottomSheet';
 import { MessageBubble } from './components/Chat/MessageBubble';
 
@@ -26,7 +26,17 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
 
   // Hooks
-  const { messages, isLoading, error, sendMessage, clearMessages, stop } = useChat();
+  const {
+    messages,
+    isLoading,
+    error,
+    sendMessage,
+    clearMessages,
+    stop,
+    selectedIframeTarget,
+    startIframePicker,
+    clearSelectedIframe,
+  } = useChat();
   const {
     quickActions,
     ai,
@@ -281,6 +291,13 @@ function App() {
         </div>
         <div className="flex gap-2">
           <button
+            onClick={() => (selectedIframeTarget ? clearSelectedIframe() : startIframePicker())}
+            className="w-8 h-8 flex items-center justify-center rounded-md bg-white/20 hover:bg-white/30 transition-colors"
+            title={selectedIframeTarget ? '清除已选 iframe' : '选择 iframe 截图'}
+          >
+            <Frame size={16} />
+          </button>
+          <button
             onClick={() => setChatZoomOpen(true)}
             className="w-8 h-8 flex items-center justify-center rounded-md bg-white/20 hover:bg-white/30 transition-colors"
             title="放大对话"
@@ -414,6 +431,13 @@ function App() {
                 </button>
               </div>
             </div>
+
+            {selectedIframeTarget && (
+              <div className="px-5 py-2 border-t border-gray-100 bg-indigo-50 text-xs text-indigo-700">
+                已选择 iframe：{selectedIframeTarget.name || selectedIframeTarget.src || selectedIframeTarget.selectorHint || selectedIframeTarget.elementId}
+                {!selectedIframeTarget.sameOrigin && '（跨域，截图将降级为页面可见区域）'}
+              </div>
+            )}
 
             {/* Chat */}
             <div className="flex-1 overflow-hidden">

@@ -4,7 +4,7 @@
  */
 
 import type { AIConfig } from './config';
-import type { ToolCall, ToolResult } from './automation';
+import type { SelectedIframeTarget, ToolCall, ToolResult } from './automation';
 
 export type MessageType =
   | 'GET_PAGE_CONTEXT'        // 获取页面内容
@@ -18,6 +18,9 @@ export type MessageType =
   | 'ABORT_TOOL'              // 终止正在执行的工具
   | 'TOOL_RESULT'             // content -> background 工具执行结果
   | 'CAPTURE_VISIBLE_TAB'     // content -> background 捕获当前视口截图
+  | 'START_IFRAME_PICKER'     // sidepanel -> content 开始点选 iframe
+  | 'CANCEL_IFRAME_PICKER'    // sidepanel -> content 取消点选 iframe
+  | 'IFRAME_PICKED'           // content -> sidepanel 已选择 iframe
   | 'SAVE_SETTINGS'           // 保存设置
   | 'LOAD_SETTINGS'           // 加载设置
   | 'SETTINGS_RESPONSE'       // 设置响应
@@ -129,6 +132,19 @@ export interface CaptureVisibleTabMessage extends BaseMessage {
   };
 }
 
+export interface StartIframePickerMessage extends BaseMessage {
+  type: 'START_IFRAME_PICKER';
+}
+
+export interface CancelIframePickerMessage extends BaseMessage {
+  type: 'CANCEL_IFRAME_PICKER';
+}
+
+export interface IframePickedMessage extends BaseMessage {
+  type: 'IFRAME_PICKED';
+  payload: SelectedIframeTarget;
+}
+
 export interface SaveSettingsMessage extends BaseMessage {
   type: 'SAVE_SETTINGS';
   payload: any;
@@ -160,6 +176,9 @@ export type Message =
   | AbortToolMessage
   | ToolResultMessage
   | CaptureVisibleTabMessage
+  | StartIframePickerMessage
+  | CancelIframePickerMessage
+  | IframePickedMessage
   | SaveSettingsMessage
   | LoadSettingsMessage
   | SettingsResponseMessage

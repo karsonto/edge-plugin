@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Agent, type AgentEvent } from '@mariozechner/pi-agent-core';
-import type { AIConfig, ChatMessage, PageContext } from '@/shared/types';
-import { sendToBackground, createMessage, onMessage, generateMessageId, truncateText } from '@/shared/utils';
+import type { AIConfig, ChatMessage, PageContext, SelectedIframeTarget } from '@/shared/types';
+import { sendToBackground, sendToContentScript, createMessage, onMessage, generateMessageId, truncateText } from '@/shared/utils';
 import {
   createBrowserAgent,
   extractAssistantText,
@@ -32,11 +32,14 @@ interface ChatStore {
   error: string | null;
   currentStreamingId: string | null;
   lastPageUrl: string | null;
+  selectedIframeTarget: SelectedIframeTarget | null;
 
   sendMessage: (content: string, settings: AIConfig, pageContext?: PageContext) => Promise<void>;
   clearMessages: () => void;
   addMessage: (message: Message) => void;
   stop: () => void;
+  startIframePicker: () => Promise<void>;
+  clearSelectedIframe: () => void;
 }
 
 export const useChat = create<ChatStore>((set, get) => {
@@ -114,7 +117,9 @@ export const useChat = create<ChatStore>((set, get) => {
       case 'waitFor':
         return `等待 \`${args.text || args.selector || '页面状态变化'}\``;
       case 'screenshotPage':
-        return `截图页面（${args.mode || 'fullpage'}）`;
+        return args.target === 'iframe' || args.iframeElementId
+          ? `截图所选 iframe（${args.mode || 'fullpage'}）`
+          : `截图页面（${args.mode || 'fullpage'}）`;
       default:
         return `执行工具 \`${toolName}\``;
     }
@@ -342,7 +347,8 @@ export const useChat = create<ChatStore>((set, get) => {
     browserAgent = createBrowserAgent(
       settings,
       () => injectedPageContext,
-      previousMessages
+      previousMessages,
+      () => get().selectedIframeTarget
     );
     browserAgentConfigKey = nextConfigKey;
     unsubscribeBrowserAgent = browserAgent.subscribe(handleBrowserAgentEvent);
@@ -404,6 +410,13 @@ export const useChat = create<ChatStore>((set, get) => {
             messages: messages.filter((msg) => msg.id !== currentStreamingId),
           });
         }
+        break;
+
+      case 'IFRAME_PICKED':
+        set({
+          selectedIframeTarget: message.payload,
+          error: null,
+        });
         break;
     }
   });
@@ -496,6 +509,7 @@ export const useChat = create<ChatStore>((set, get) => {
     error: null,
     currentStreamingId: null,
     lastPageUrl: null,
+    selectedIframeTarget: null,
 
     sendMessage: async (content: string, settings: AIConfig, pageContext?: PageContext) => {
       if (!content.trim()) return;
@@ -580,7 +594,7 @@ export const useChat = create<ChatStore>((set, get) => {
       browserAgent?.reset();
       currentAgentAssistantUiId = null;
       currentToolStatusMessageId = null;
-      set({ messages: [], error: null, lastPageUrl: null });
+      set({ messages: [], error: null, lastPageUrl: null, selectedIframeTarget: null });
     },
 
     addMessage: (message: Message) => {
@@ -596,6 +610,22 @@ export const useChat = create<ChatStore>((set, get) => {
         currentAbortController = null;
       }
       set({ isLoading: false });
+    },
+
+    startIframePicker: async () => {
+      try {
+        await sendToContentScript(createMessage('START_IFRAME_PICKER'));
+        set({ error: null });
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : '启动 iframe 选择失败' });
+      }
+    },
+
+    clearSelectedIframe: () => {
+      sendToContentScript(createMessage('CANCEL_IFRAME_PICKER')).catch(() => {
+        // noop
+      });
+      set({ selectedIframeTarget: null });
     },
   };
 });
