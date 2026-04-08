@@ -16,7 +16,8 @@ export type InteractAction = 'click' | 'type' | 'press' | 'selectOption';
 export type WaitForState = 'appear' | 'disappear' | 'stable';
 
 export type ScreenshotMode = 'viewport' | 'fullpage';
-export type ScreenshotTargetType = 'page' | 'iframe';
+export type ScreenshotTargetType = 'page' | 'iframe' | 'container';
+export type ScreenshotTargetMode = 'page' | 'element';
 
 export interface ToolCall {
   tool: ToolName;
@@ -97,16 +98,18 @@ export interface ScreenshotResultData {
   scale: number;
   tileCount: number;
   warning?: string;
-  iframeInfo?: SelectedIframeTarget;
+  targetInfo?: SelectedScreenshotTarget;
 }
 
-export interface SelectedIframeTarget {
+export interface SelectedScreenshotTarget {
   elementId: string;
+  tag: string;
+  kind: 'iframe' | 'container';
   selectorHint?: string;
   rect?: { x: number; y: number; width: number; height: number };
   src?: string;
   name?: string;
-  sameOrigin: boolean;
+  sameOrigin?: boolean;
 }
 
 

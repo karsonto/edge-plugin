@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Agent, type AgentEvent } from '@mariozechner/pi-agent-core';
-import type { AIConfig, ChatMessage, PageContext, SelectedIframeTarget } from '@/shared/types';
+import type { AIConfig, ChatMessage, PageContext, SelectedScreenshotTarget } from '@/shared/types';
 import { sendToBackground, sendToContentScript, createMessage, onMessage, generateMessageId, truncateText } from '@/shared/utils';
 import {
   createBrowserAgent,
@@ -32,14 +32,14 @@ interface ChatStore {
   error: string | null;
   currentStreamingId: string | null;
   lastPageUrl: string | null;
-  selectedIframeTarget: SelectedIframeTarget | null;
+  selectedScreenshotTarget: SelectedScreenshotTarget | null;
 
   sendMessage: (content: string, settings: AIConfig, pageContext?: PageContext) => Promise<void>;
   clearMessages: () => void;
   addMessage: (message: Message) => void;
   stop: () => void;
-  startIframePicker: () => Promise<void>;
-  clearSelectedIframe: () => void;
+  startScreenshotTargetPicker: () => Promise<void>;
+  clearSelectedScreenshotTarget: () => void;
 }
 
 export const useChat = create<ChatStore>((set, get) => {
@@ -118,8 +118,8 @@ export const useChat = create<ChatStore>((set, get) => {
       case 'waitFor':
         return `等待 \`${args.text || args.selector || '页面状态变化'}\``;
       case 'screenshotPage':
-        return args.target === 'iframe' || args.iframeElementId
-          ? `截图所选 iframe（${args.mode || 'fullpage'}）`
+        return args.target === 'element' || args.elementId
+          ? `截图所选目标区域（${args.mode || 'fullpage'}）`
           : `截图页面（${args.mode || 'fullpage'}）`;
       default:
         return `执行工具 \`${toolName}\``;
@@ -349,7 +349,7 @@ export const useChat = create<ChatStore>((set, get) => {
       settings,
       () => injectedPageContext,
       previousMessages,
-      () => get().selectedIframeTarget
+      () => get().selectedScreenshotTarget
     );
     browserAgentConfigKey = nextConfigKey;
     unsubscribeBrowserAgent = browserAgent.subscribe(handleBrowserAgentEvent);
@@ -424,9 +424,9 @@ export const useChat = create<ChatStore>((set, get) => {
         }
         break;
 
-      case 'IFRAME_PICKED':
+      case 'SCREENSHOT_TARGET_PICKED':
         set({
-          selectedIframeTarget: message.payload,
+          selectedScreenshotTarget: message.payload,
           error: null,
         });
         break;
@@ -539,7 +539,7 @@ export const useChat = create<ChatStore>((set, get) => {
     error: null,
     currentStreamingId: null,
     lastPageUrl: null,
-    selectedIframeTarget: null,
+    selectedScreenshotTarget: null,
 
     sendMessage: async (content: string, settings: AIConfig, pageContext?: PageContext) => {
       if (!content.trim()) return;
@@ -624,7 +624,7 @@ export const useChat = create<ChatStore>((set, get) => {
       browserAgent?.reset();
       currentAgentAssistantUiId = null;
       currentToolStatusMessageId = null;
-      set({ messages: [], error: null, lastPageUrl: null, selectedIframeTarget: null });
+      set({ messages: [], error: null, lastPageUrl: null, selectedScreenshotTarget: null });
     },
 
     addMessage: (message: Message) => {
@@ -655,20 +655,20 @@ export const useChat = create<ChatStore>((set, get) => {
       });
     },
 
-    startIframePicker: async () => {
+    startScreenshotTargetPicker: async () => {
       try {
-        await sendToContentScript(createMessage('START_IFRAME_PICKER'));
+        await sendToContentScript(createMessage('START_SCREENSHOT_TARGET_PICKER'));
         set({ error: null });
       } catch (error) {
-        set({ error: error instanceof Error ? error.message : '启动 iframe 选择失败' });
+        set({ error: error instanceof Error ? error.message : '启动截图目标选择失败' });
       }
     },
 
-    clearSelectedIframe: () => {
-      sendToContentScript(createMessage('CANCEL_IFRAME_PICKER')).catch(() => {
+    clearSelectedScreenshotTarget: () => {
+      sendToContentScript(createMessage('CANCEL_SCREENSHOT_TARGET_PICKER')).catch(() => {
         // noop
       });
-      set({ selectedIframeTarget: null });
+      set({ selectedScreenshotTarget: null });
     },
   };
 });

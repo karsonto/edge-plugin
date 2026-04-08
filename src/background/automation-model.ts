@@ -183,7 +183,7 @@ export function getToolDefinitions() {
       type: 'function',
       function: {
         name: 'screenshotPage',
-        description: '截图当前页面，默认 fullpage。适合把页面视觉内容作为图片提供给多模态模型',
+        description: '截图当前页面或用户已选中的目标元素，默认 fullpage。适合把页面视觉内容作为图片提供给多模态模型',
         parameters: {
           type: 'object',
           properties: {
@@ -194,12 +194,12 @@ export function getToolDefinitions() {
             },
             target: {
               type: 'string',
-              enum: ['page', 'iframe'],
+              enum: ['page', 'element'],
               description: '截图目标类型，默认 page',
             },
-            iframeElementId: {
+            elementId: {
               type: 'string',
-              description: '用户预先选择的 iframe elementId，仅在 target=iframe 时使用',
+              description: '用户预先选择的目标元素 ID，仅在 target=element 时使用',
             },
           },
           required: [],
@@ -229,14 +229,14 @@ export function toolSpecText(): string {
     '- inspectElement: { "elementId"?: string, "selector"?: string, "selectorType"?: "css"|"xpath", "targetText"?: string, "targetRole"?: "field"|"button"|"link" }',
     '- interact: { "action": "click"|"type"|"press"|"selectOption", "elementId"?: string, "selector"?: string, "selectorType"?: "css"|"xpath", "targetText"?: string, "targetRole"?: "field"|"button"|"link", "text"?: string, "key"?: string, "value"?: string, "label"?: string, "mode"?: "replace"|"append" }',
     '- waitFor: { "selector"?: string, "selectorType"?: "css"|"xpath", "text"?: string, "state"?: "appear"|"disappear"|"stable", "timeoutMs"?: number }',
-    '- screenshotPage: { "mode"?: "fullpage"|"viewport", "target"?: "page"|"iframe", "iframeElementId"?: string }',
+    '- screenshotPage: { "mode"?: "fullpage"|"viewport", "target"?: "page"|"element", "elementId"?: string }',
     '',
     'Rules:',
     '- Prefer low-risk browser actions only. Read page state before acting.',
     '- For common form fields, prefer targetText + targetRole="field" to directly locate the control by its label.',
     '- Prefer elementId returned by query/findByText over raw selectors when reading a specific element.',
     '- Use screenshotPage when visual layout, chart, style, or screenshot evidence matters.',
-    '- Use iframe screenshot mode only when the user has already selected a target iframe.',
+    '- Use element screenshot mode only when the user has already selected a target element.',
     '- After an action, validate the outcome before deciding the next step.',
     '- Use the minimum number of tool calls needed to answer the user question.',
   ].join('\n');
@@ -280,7 +280,7 @@ export function validateToolCall(call: ToolCall): { ok: true } | { ok: false; re
   if (tool === 'getValue' && !args?.elementId && !args?.selector && !args?.targetText) return { ok: false, reason: 'getValue requires elementId, selector or targetText' };
   if (tool === 'inspectElement' && !args?.elementId && !args?.selector && !args?.targetText) return { ok: false, reason: 'inspectElement requires elementId, selector or targetText' };
   if (tool === 'interact' && !args?.action) return { ok: false, reason: 'interact requires action' };
-  if (tool === 'screenshotPage' && args?.target === 'iframe' && !args?.iframeElementId) return { ok: false, reason: 'screenshotPage iframe target requires iframeElementId' };
+  if (tool === 'screenshotPage' && args?.target === 'element' && !args?.elementId) return { ok: false, reason: 'screenshotPage element target requires elementId' };
 
   return { ok: true };
 }

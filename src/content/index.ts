@@ -4,13 +4,13 @@
 
 import type {
   AbortToolMessage,
-  CancelIframePickerMessage,
+  CancelScreenshotTargetPickerMessage,
   ExecuteToolMessage,
-  IframePickedMessage,
   Message,
   PageContext,
-  SelectedIframeTarget,
-  StartIframePickerMessage,
+  ScreenshotTargetPickedMessage,
+  SelectedScreenshotTarget,
+  StartScreenshotTargetPickerMessage,
 } from '@/shared/types';
 import { onMessage, createMessage } from '@/shared/utils/message-bridge';
 import { extractPageContext } from './text-extractor';
@@ -62,7 +62,7 @@ const selectionHandler = new SelectionHandler({
 selectionHandler.init();
 
 const activeToolControllers = new Map<string, AbortController>();
-let cleanupIframePicker: (() => void) | null = null;
+let cleanupScreenshotTargetPicker: (() => void) | null = null;
 
 function getToolExecutionKey(runId: string, stepId: string) {
   return `${runId}:${stepId}`;
@@ -85,12 +85,12 @@ onMessage((message: Message, _sender, sendResponse) => {
       handleAbortTool(message as AbortToolMessage, sendResponse);
       return true;
 
-    case 'START_IFRAME_PICKER':
-      handleStartIframePicker(message as StartIframePickerMessage, sendResponse);
+    case 'START_SCREENSHOT_TARGET_PICKER':
+      handleStartScreenshotTargetPicker(message as StartScreenshotTargetPickerMessage, sendResponse);
       return true;
 
-    case 'CANCEL_IFRAME_PICKER':
-      handleCancelIframePicker(message as CancelIframePickerMessage, sendResponse);
+    case 'CANCEL_SCREENSHOT_TARGET_PICKER':
+      handleCancelScreenshotTargetPicker(message as CancelScreenshotTargetPickerMessage, sendResponse);
       return true;
 
     default:
@@ -156,37 +156,69 @@ function handleAbortTool(message: AbortToolMessage, sendResponse: (response: any
   sendResponse({ ok: true });
 }
 
-function buildIframePickPayload(iframe: HTMLIFrameElement): SelectedIframeTarget {
-  let sameOrigin = false;
-  try {
-    sameOrigin = Boolean(iframe.contentDocument);
-  } catch {
-    sameOrigin = false;
+function isScrollableContainer(element: Element): element is HTMLElement {
+  if (!(element instanceof HTMLElement) || element instanceof HTMLIFrameElement) {
+    return false;
   }
 
-  return {
-    elementId: getOrCreateElementId(iframe),
-    selectorHint: iframe.id ? `#${iframe.id}` : undefined,
-    rect: {
-      x: iframe.getBoundingClientRect().x,
-      y: iframe.getBoundingClientRect().y,
-      width: iframe.getBoundingClientRect().width,
-      height: iframe.getBoundingClientRect().height,
-    },
-    src: iframe.getAttribute('src') || iframe.src || undefined,
-    name: iframe.getAttribute('name') || undefined,
-    sameOrigin,
-  };
+  const style = window.getComputedStyle(element);
+  const overflowY = style.overflowY;
+  const overflowX = style.overflowX;
+  const canScrollY =
+    (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+    element.scrollHeight > element.clientHeight + 4;
+  const canScrollX =
+    (overflowX === 'auto' || overflowX === 'scroll' || overflowX === 'overlay') &&
+    element.scrollWidth > element.clientWidth + 4;
+
+  return canScrollY || canScrollX;
 }
 
-function stopIframePicker() {
-  cleanupIframePicker?.();
-  cleanupIframePicker = null;
+function buildScreenshotTargetPayload(element: Element): SelectedScreenshotTarget {
+  const rect = element.getBoundingClientRect();
+  const basePayload: SelectedScreenshotTarget = {
+    elementId: getOrCreateElementId(element),
+    tag: element.tagName.toLowerCase(),
+    kind: element instanceof HTMLIFrameElement ? 'iframe' : 'container',
+    selectorHint: element instanceof HTMLElement && element.id ? `#${element.id}` : undefined,
+    rect: {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    },
+  };
+
+  if (element instanceof HTMLIFrameElement) {
+    let sameOrigin = false;
+    try {
+      sameOrigin = Boolean(element.contentDocument);
+    } catch {
+      sameOrigin = false;
+    }
+
+    return {
+      ...basePayload,
+      src: element.getAttribute('src') || element.src || undefined,
+      name: element.getAttribute('name') || undefined,
+      sameOrigin,
+    };
+  }
+
+  return basePayload;
+}
+
+function stopScreenshotTargetPicker() {
+  cleanupScreenshotTargetPicker?.();
+  cleanupScreenshotTargetPicker = null;
   clearHighlight();
 }
 
-function handleStartIframePicker(_message: StartIframePickerMessage, sendResponse: (response: any) => void) {
-  stopIframePicker();
+function handleStartScreenshotTargetPicker(
+  _message: StartScreenshotTargetPickerMessage,
+  sendResponse: (response: any) => void
+) {
+  stopScreenshotTargetPicker();
 
   const pickerOverlay = document.createElement('div');
   pickerOverlay.style.position = 'fixed';
@@ -197,7 +229,7 @@ function handleStartIframePicker(_message: StartIframePickerMessage, sendRespons
   pickerOverlay.style.pointerEvents = 'auto';
 
   const pickerLabel = document.createElement('div');
-  pickerLabel.textContent = '点击要截图的 iframe，按 Esc 取消';
+  pickerLabel.textContent = '点击要截图的目标区域，按 Esc 取消';
   pickerLabel.style.position = 'fixed';
   pickerLabel.style.top = '16px';
   pickerLabel.style.left = '50%';
@@ -214,25 +246,37 @@ function handleStartIframePicker(_message: StartIframePickerMessage, sendRespons
   document.documentElement.appendChild(pickerOverlay);
   document.documentElement.appendChild(pickerLabel);
 
-  const getIframeAtPoint = (clientX: number, clientY: number) => {
+  const getScreenshotTargetAtPoint = (clientX: number, clientY: number) => {
     pickerOverlay.style.pointerEvents = 'none';
-    const target = document.elementFromPoint(clientX, clientY);
+    let target = document.elementFromPoint(clientX, clientY);
     pickerOverlay.style.pointerEvents = 'auto';
-    return target instanceof HTMLIFrameElement ? target : null;
+
+    while (target && target !== document.documentElement) {
+      if (target instanceof HTMLIFrameElement) {
+        return target;
+      }
+      if (isScrollableContainer(target)) {
+        return target;
+      }
+      target = target.parentElement;
+    }
+
+    return null;
   };
 
   const handleMove = (event: MouseEvent) => {
-    const iframe = getIframeAtPoint(event.clientX, event.clientY);
-    if (!iframe) {
+    const target = getScreenshotTargetAtPoint(event.clientX, event.clientY);
+    if (!target) {
       clearHighlight();
       return;
     }
-    showRectHighlight(iframe.getBoundingClientRect(), '点击以选择 iframe', 10_000);
+    const label = target instanceof HTMLIFrameElement ? '点击以选择 iframe' : '点击以选择滚动区域';
+    showRectHighlight(target.getBoundingClientRect(), label, 10_000);
   };
 
   const handleClick = (event: MouseEvent) => {
-    const iframe = getIframeAtPoint(event.clientX, event.clientY);
-    if (!iframe) {
+    const target = getScreenshotTargetAtPoint(event.clientX, event.clientY);
+    if (!target) {
       return;
     }
 
@@ -240,26 +284,32 @@ function handleStartIframePicker(_message: StartIframePickerMessage, sendRespons
     event.stopPropagation();
     event.stopImmediatePropagation();
 
-    const payload = buildIframePickPayload(iframe);
-    showRectHighlight(iframe.getBoundingClientRect(), payload.sameOrigin ? '已选择 iframe' : '跨域 iframe', 1500);
-    chrome.runtime.sendMessage(createMessage('IFRAME_PICKED', payload) as IframePickedMessage, () => {
+    const payload = buildScreenshotTargetPayload(target);
+    const successLabel =
+      payload.kind === 'iframe'
+        ? payload.sameOrigin
+          ? '已选择 iframe'
+          : '已选择跨域 iframe'
+        : '已选择滚动区域';
+    showRectHighlight(target.getBoundingClientRect(), successLabel, 1500);
+    chrome.runtime.sendMessage(createMessage('SCREENSHOT_TARGET_PICKED', payload) as ScreenshotTargetPickedMessage, () => {
       if (chrome.runtime.lastError) {
         // noop
       }
     });
-    stopIframePicker();
+    stopScreenshotTargetPicker();
   };
 
   const handleKeydown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') {
-      stopIframePicker();
+      stopScreenshotTargetPicker();
     }
   };
 
   pickerOverlay.addEventListener('mousemove', handleMove, true);
   pickerOverlay.addEventListener('click', handleClick, true);
   window.addEventListener('keydown', handleKeydown, true);
-  cleanupIframePicker = () => {
+  cleanupScreenshotTargetPicker = () => {
     pickerOverlay.removeEventListener('mousemove', handleMove, true);
     pickerOverlay.removeEventListener('click', handleClick, true);
     window.removeEventListener('keydown', handleKeydown, true);
@@ -270,8 +320,11 @@ function handleStartIframePicker(_message: StartIframePickerMessage, sendRespons
   sendResponse({ ok: true });
 }
 
-function handleCancelIframePicker(_message: CancelIframePickerMessage, sendResponse: (response: any) => void) {
-  stopIframePicker();
+function handleCancelScreenshotTargetPicker(
+  _message: CancelScreenshotTargetPickerMessage,
+  sendResponse: (response: any) => void
+) {
+  stopScreenshotTargetPicker();
   sendResponse({ ok: true });
 }
 
@@ -474,7 +527,7 @@ window.addEventListener('beforeunload', () => {
   if (domObserver) {
     domObserver.disconnect();
   }
-  stopIframePicker();
+  stopScreenshotTargetPicker();
   selectionHandler.destroy();
   clearHighlight();
 });

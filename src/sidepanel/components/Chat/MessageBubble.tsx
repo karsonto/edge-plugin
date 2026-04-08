@@ -122,6 +122,8 @@ function ToolLogCard({ toolLog }: { toolLog: NonNullable<MessageBubbleProps['too
               {typeof screenshotMeta.tileCount === 'number' ? `，分片 ${screenshotMeta.tileCount}` : ''}
               {screenshotMeta.mode ? `，模式 ${screenshotMeta.mode}` : ''}
               {screenshotMeta.targetType ? `，目标 ${screenshotMeta.targetType}` : ''}
+              {screenshotMeta.targetInfo?.tag ? `，标签 ${screenshotMeta.targetInfo.tag}` : ''}
+              {screenshotMeta.targetInfo?.selectorHint ? `，定位 ${screenshotMeta.targetInfo.selectorHint}` : ''}
               {screenshotMeta.warning ? `，提示：${screenshotMeta.warning}` : ''}
             </div>
           )}

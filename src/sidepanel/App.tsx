@@ -33,9 +33,9 @@ function App() {
     sendMessage,
     clearMessages,
     stop,
-    selectedIframeTarget,
-    startIframePicker,
-    clearSelectedIframe,
+    selectedScreenshotTarget,
+    startScreenshotTargetPicker,
+    clearSelectedScreenshotTarget,
   } = useChat();
   const {
     quickActions,
@@ -291,9 +291,9 @@ function App() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => (selectedIframeTarget ? clearSelectedIframe() : startIframePicker())}
+            onClick={() => (selectedScreenshotTarget ? clearSelectedScreenshotTarget() : startScreenshotTargetPicker())}
             className="w-8 h-8 flex items-center justify-center rounded-md bg-white/20 hover:bg-white/30 transition-colors"
-            title={selectedIframeTarget ? '清除已选 iframe' : '选择 iframe 截图'}
+            title={selectedScreenshotTarget ? '清除已选截图目标' : '选择截图目标'}
           >
             <Frame size={16} />
           </button>
@@ -432,10 +432,14 @@ function App() {
               </div>
             </div>
 
-            {selectedIframeTarget && (
+            {selectedScreenshotTarget && (
               <div className="px-5 py-2 border-t border-gray-100 bg-indigo-50 text-xs text-indigo-700">
-                已选择 iframe：{selectedIframeTarget.name || selectedIframeTarget.src || selectedIframeTarget.selectorHint || selectedIframeTarget.elementId}
-                {!selectedIframeTarget.sameOrigin && '（跨域，截图将降级为页面可见区域）'}
+                已选择{selectedScreenshotTarget.kind === 'iframe' ? ' iframe' : '滚动区域'}：
+                {selectedScreenshotTarget.name ||
+                  selectedScreenshotTarget.src ||
+                  selectedScreenshotTarget.selectorHint ||
+                  selectedScreenshotTarget.elementId}
+                {selectedScreenshotTarget.kind === 'iframe' && selectedScreenshotTarget.sameOrigin === false && '（跨域，截图将降级为页面可见区域）'}
               </div>
             )}
 

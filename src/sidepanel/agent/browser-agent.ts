@@ -5,7 +5,7 @@ import type {
   ElementSummary,
   InspectElementData,
   InteractResultData,
-  SelectedIframeTarget,
+  SelectedScreenshotTarget,
   ScreenshotResultData,
   ToolCall,
   ToolResult,
@@ -20,7 +20,7 @@ const BROWSER_AGENT_SYSTEM_PROMPT = `你是浏览器自动化助手，负责读�
 2. 优先使用 findByText/query 获取 elementId，再使用 elementId 操作
 3. 对常见表单字段，优先直接使用 targetText + targetRole="field" 进行 inspectElement / interact / getValue
 4. 当需要视觉确认布局、图表、颜色、截图证据时，使用 screenshotPage；优先一次截图解决问题，不要反复整页读取
-5. 只有当用户已经明确选中了 iframe，才允许使用 screenshotPage 的 iframe 模式
+5. 如果用户已经明确选中了截图目标元素，优先对该目标截图；否则按页面截图
 6. 一次只执行一个动作工具
 7. 动作后必须验证结果，再决定下一步
 8. 不要重复读取整页，优先做局部检查
@@ -252,7 +252,7 @@ function createTool(
 
 function createBrowserAgentTools(
   allowScreenshots: boolean,
-  getSelectedIframeTarget?: () => SelectedIframeTarget | null
+  getSelectedScreenshotTarget?: () => SelectedScreenshotTarget | null
 ): AgentTool[] {
   return [
     createTool('getPageInfo', 'Get Page Info', '获取当前页面的 URL 和标题', Type.Object({})),
@@ -349,22 +349,22 @@ function createBrowserAgentTools(
           createTool(
             'screenshotPage',
             'Screenshot Page',
-            '截图当前页面或用户已选中的 iframe。默认 fullpage，适合把页面视觉内容作为图片提供给模型',
+            '截图当前页面或用户已选中的目标元素。默认 fullpage，适合把页面视觉内容作为图片提供给模型',
             Type.Object({
               mode: Type.Optional(Type.Union([Type.Literal('fullpage'), Type.Literal('viewport')])),
-              target: Type.Optional(Type.Union([Type.Literal('page'), Type.Literal('iframe')])),
-              iframeElementId: Type.Optional(Type.String()),
+              target: Type.Optional(Type.Union([Type.Literal('page'), Type.Literal('element')])),
+              elementId: Type.Optional(Type.String()),
             }),
             {
               multimodal: true,
               getDefaultArgs: () => {
-                const selectedIframe = getSelectedIframeTarget?.();
-                if (!selectedIframe) {
+                const selectedTarget = getSelectedScreenshotTarget?.();
+                if (!selectedTarget) {
                   return undefined;
                 }
                 return {
-                  target: 'iframe',
-                  iframeElementId: selectedIframe.elementId,
+                  target: 'element',
+                  elementId: selectedTarget.elementId,
                 };
               },
             }
@@ -407,14 +407,14 @@ export function createBrowserAgent(
   config: AIConfig,
   getInjectedContext: () => string | null,
   previousMessages?: any[],
-  getSelectedIframeTarget?: () => SelectedIframeTarget | null
+  getSelectedScreenshotTarget?: () => SelectedScreenshotTarget | null
 ) {
   const model = createModelFromConfig(config);
   return new Agent({
     initialState: {
       systemPrompt: BROWSER_AGENT_SYSTEM_PROMPT,
       model,
-      tools: createBrowserAgentTools(modelSupportsImageInput(model), getSelectedIframeTarget),
+      tools: createBrowserAgentTools(modelSupportsImageInput(model), getSelectedScreenshotTarget),
       messages: pruneMessages(previousMessages || []),
     },
     transformContext: async (messages) => {
