@@ -45,6 +45,7 @@ interface ChatStore {
 export const useChat = create<ChatStore>((set, get) => {
   let shouldStop = false;
   let currentAbortController: AbortController | null = null;
+  const stoppedStreamingMessageIds = new Set<string>();
   let browserAgent: Agent | null = null;
   let browserAgentConfigKey: string | null = null;
   let unsubscribeBrowserAgent: (() => void) | null = null;
@@ -378,6 +379,9 @@ export const useChat = create<ChatStore>((set, get) => {
       }
 
       case 'AI_RESPONSE_CHUNK':
+        if (stoppedStreamingMessageIds.has(message.payload.messageId)) {
+          break;
+        }
         if (message.payload.messageId === currentStreamingId) {
           set({
             messages: messages.map((msg) =>
@@ -390,6 +394,10 @@ export const useChat = create<ChatStore>((set, get) => {
         break;
 
       case 'AI_RESPONSE_END':
+        if (stoppedStreamingMessageIds.has(message.payload.messageId)) {
+          stoppedStreamingMessageIds.delete(message.payload.messageId);
+          break;
+        }
         if (message.payload.messageId === currentStreamingId) {
           set({
             messages: messages.map((msg) =>
@@ -402,6 +410,10 @@ export const useChat = create<ChatStore>((set, get) => {
         break;
 
       case 'AI_RESPONSE_ERROR':
+        if (stoppedStreamingMessageIds.has(message.payload.messageId)) {
+          stoppedStreamingMessageIds.delete(message.payload.messageId);
+          break;
+        }
         if (message.payload.messageId === currentStreamingId) {
           set({
             error: message.payload.error,
@@ -479,6 +491,24 @@ export const useChat = create<ChatStore>((set, get) => {
           settings,
         })
       );
+
+      if (response?.aborted) {
+        stoppedStreamingMessageIds.delete(response.messageId);
+        set({
+          isLoading: false,
+          currentStreamingId: null,
+          messages: [
+            ...get().messages,
+            {
+              id: generateMessageId(),
+              role: 'assistant',
+              content: '操作已中断。',
+              timestamp: Date.now(),
+            },
+          ],
+        });
+        return;
+      }
 
       if (response?.type === 'ERROR') {
         throw new Error(response?.payload?.error || 'AI 请求失败');
@@ -605,11 +635,24 @@ export const useChat = create<ChatStore>((set, get) => {
       shouldStop = true;
       browserAgent?.abort();
       currentToolStatusMessageId = null;
+      const activeStreamingId = get().currentStreamingId;
+      if (activeStreamingId) {
+        stoppedStreamingMessageIds.add(activeStreamingId);
+        sendToBackground(createMessage('ABORT_AI', { messageId: activeStreamingId })).catch(() => {
+          // noop
+        });
+      }
       if (currentAbortController) {
         currentAbortController.abort();
         currentAbortController = null;
       }
-      set({ isLoading: false });
+      set({
+        isLoading: false,
+        currentStreamingId: null,
+        messages: get().messages.map((msg) =>
+          msg.id === activeStreamingId ? { ...msg, isStreaming: false } : msg
+        ),
+      });
     },
 
     startIframePicker: async () => {

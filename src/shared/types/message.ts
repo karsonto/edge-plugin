@@ -14,6 +14,7 @@ export type MessageType =
   | 'AI_RESPONSE_CHUNK'       // AI 响应片段（流式）
   | 'AI_RESPONSE_END'         // AI 响应结束
   | 'AI_RESPONSE_ERROR'       // AI 响应错误
+  | 'ABORT_AI'               // 中断正在进行的 AI 流式请求
   | 'EXECUTE_TOOL'            // background -> content 执行工具
   | 'ABORT_TOOL'              // 终止正在执行的工具
   | 'TOOL_RESULT'             // content -> background 工具执行结果
@@ -98,6 +99,13 @@ export interface AIResponseErrorMessage extends BaseMessage {
   };
 }
 
+export interface AbortAIMessage extends BaseMessage {
+  type: 'ABORT_AI';
+  payload: {
+    messageId: string;
+  };
+}
+
 export interface ExecuteToolMessage extends BaseMessage {
   type: 'EXECUTE_TOOL';
   payload: {
@@ -172,6 +180,7 @@ export type Message =
   | AIResponseChunkMessage
   | AIResponseEndMessage
   | AIResponseErrorMessage
+  | AbortAIMessage
   | ExecuteToolMessage
   | AbortToolMessage
   | ToolResultMessage

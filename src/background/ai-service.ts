@@ -63,7 +63,7 @@ export class AIService {
   /**
    * 发送聊天请求（流式）
    */
-  async *streamChat(messages: ChatMessage[]): AsyncGenerator<string> {
+  async *streamChat(messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<string> {
     if (this.requireApiKey && !this.apiKey) {
       throw new Error('API Key 未配置');
     }
@@ -99,6 +99,7 @@ export class AIService {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {

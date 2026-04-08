@@ -2,7 +2,7 @@
  * 消息处理器
  */
 
-import type { CaptureVisibleTabMessage, Message, PageContext } from '@/shared/types';
+import type { AbortAIMessage, CaptureVisibleTabMessage, Message, PageContext } from '@/shared/types';
 import { AIService } from './ai-service';
 import { storageManager } from './storage-manager';
 import { createMessage, generateMessageId } from '@/shared/utils/message-bridge';
@@ -12,6 +12,8 @@ import { captureVisibleTab } from './screenshot-service';
 /**
  * 处理来自 content script 或 sidepanel 的消息
  */
+const activeAIRequests = new Map<string, AbortController>();
+
 export async function handleMessage(
   message: Message,
   sender: chrome.runtime.MessageSender,
@@ -28,6 +30,10 @@ export async function handleMessage(
       case 'SEND_TO_AI':
         await handleSendToAI(message, sendResponse);
         return true;
+
+      case 'ABORT_AI':
+        handleAbortAI(message as AbortAIMessage, sendResponse);
+        return false;
 
       case 'CAPTURE_VISIBLE_TAB':
         await handleCaptureVisibleTab(message as CaptureVisibleTabMessage, sender, sendResponse);
@@ -166,6 +172,8 @@ async function handleSendToAI(
 ) {
   const { messages, settings } = message.payload;
   const messageId = generateMessageId();
+  const controller = new AbortController();
+  activeAIRequests.set(messageId, controller);
 
   // 创建 AI 服务实例
   const aiService = new AIService(settings);
@@ -177,20 +185,27 @@ async function handleSendToAI(
 
   try {
     // 流式响应
-    for await (const chunk of aiService.streamChat(messages)) {
+    for await (const chunk of aiService.streamChat(messages, controller.signal)) {
       // 发送每个片段
       chrome.runtime.sendMessage(
         createMessage('AI_RESPONSE_CHUNK', { messageId, chunk })
       );
     }
 
-    // 发送结束消息
-    chrome.runtime.sendMessage(
-      createMessage('AI_RESPONSE_END', { messageId })
-    );
+    if (!controller.signal.aborted) {
+      // 发送结束消息
+      chrome.runtime.sendMessage(
+        createMessage('AI_RESPONSE_END', { messageId })
+      );
+    }
 
-    sendResponse({ success: true });
+    sendResponse(controller.signal.aborted ? { aborted: true, messageId } : { success: true });
   } catch (error) {
+    if (controller.signal.aborted) {
+      sendResponse({ aborted: true, messageId });
+      return;
+    }
+
     console.error('AI service error:', error);
     
     // 发送错误消息
@@ -207,7 +222,19 @@ async function handleSendToAI(
         error: error instanceof Error ? error.message : 'Unknown error',
       },
     });
+  } finally {
+    activeAIRequests.delete(messageId);
   }
+}
+
+function handleAbortAI(message: AbortAIMessage, sendResponse: (response?: any) => void) {
+  const messageId = message.payload?.messageId;
+  if (messageId) {
+    const controller = activeAIRequests.get(messageId);
+    controller?.abort();
+    activeAIRequests.delete(messageId);
+  }
+  sendResponse({ ok: true });
 }
 
 async function handleCaptureVisibleTab(
