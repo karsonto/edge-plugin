@@ -33,6 +33,8 @@ function now() {
 
 const MAX_SCREENSHOT_DIMENSION = 8192;
 const MAX_SCREENSHOT_DATA_URL_LENGTH = 6_000_000;
+const MIN_VISIBLE_TAB_CAPTURE_INTERVAL_MS = 500;
+let lastVisibleTabCaptureAt = 0;
 
 function hashText(input: string): string {
   let h = 5381;
@@ -449,7 +451,13 @@ async function waitForNextPaint(signal?: AbortSignal) {
 
 async function requestVisibleTabCapture(signal?: AbortSignal) {
   assertNotAborted(signal);
+  const elapsedSinceLastCapture = Date.now() - lastVisibleTabCaptureAt;
+  if (elapsedSinceLastCapture < MIN_VISIBLE_TAB_CAPTURE_INTERVAL_MS) {
+    await sleep(MIN_VISIBLE_TAB_CAPTURE_INTERVAL_MS - elapsedSinceLastCapture, signal);
+  }
+
   return new Promise<{ dataUrl: string; mimeType: string }>((resolve, reject) => {
+    lastVisibleTabCaptureAt = Date.now();
     chrome.runtime.sendMessage(createMessage('CAPTURE_VISIBLE_TAB', { format: 'png' }), (response) => {
       if (signal?.aborted) {
         reject(new Error('操作已中断。'));
