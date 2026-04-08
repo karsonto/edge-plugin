@@ -9,6 +9,7 @@ interface AIConfigProps {
 
 export function AIConfig({ config, onChange }: AIConfigProps) {
   const modelOptions = MODEL_OPTIONS[config.provider] || [];
+  const isCustomProvider = config.provider === 'custom';
 
   return (
     <div className="space-y-6">
@@ -22,7 +23,7 @@ export function AIConfig({ config, onChange }: AIConfigProps) {
           {/* AI Provider */}
           <div>
             <label className="block text-sm text-gray-600 mb-1.5">
-              AI 提供商
+              服务类型
             </label>
             <select
               value={config.provider}
@@ -41,11 +42,12 @@ export function AIConfig({ config, onChange }: AIConfigProps) {
               }}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary"
             >
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic (Claude)</option>
-              <option value="gemini">Google (Gemini)</option>
-              <option value="custom">自定义</option>
+              <option value="openai">OpenAI 官方</option>
+              <option value="custom">OpenAI-compatible / 自定义端点</option>
             </select>
+            <p className="text-xs text-gray-400 mt-1">
+              当前仅支持 OpenAI Chat Completions 及其兼容接口
+            </p>
           </div>
 
           {/* API Key */}
@@ -58,11 +60,13 @@ export function AIConfig({ config, onChange }: AIConfigProps) {
               type="password"
               value={config.apiKey}
               onChange={(e) => onChange({ apiKey: e.target.value })}
-              placeholder="sk-..."
+              placeholder={isCustomProvider ? '可选，留空表示不附带 Authorization' : 'sk-...'}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary"
             />
             <p className="text-xs text-gray-400 mt-1">
-              您的 API Key 将安全存储在本地
+              {isCustomProvider
+                ? '自定义兼容端点可选填 API Key；填写后会以 Bearer Token 方式发送'
+                : '您的 OpenAI API Key 将安全存储在本地'}
             </p>
           </div>
 
@@ -71,13 +75,13 @@ export function AIConfig({ config, onChange }: AIConfigProps) {
             <label className="block text-sm text-gray-600 mb-1.5">
               模型选择
             </label>
-            {config.provider === 'custom' ? (
+            {isCustomProvider ? (
               <>
                 <input
                   type="text"
                   value={config.model || ''}
                   onChange={(e) => onChange({ model: e.target.value })}
-                  placeholder="输入模型名（例如：qwen3）"
+                  placeholder="输入模型名（例如：qwen3、gpt-4o-mini）"
                   list="custom-model-options"
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary"
                 />
@@ -89,7 +93,7 @@ export function AIConfig({ config, onChange }: AIConfigProps) {
                   ))}
                 </datalist>
                 <p className="text-xs text-gray-400 mt-1">
-                  可直接填写任意模型名（会原样传给后端请求体的 model 字段）
+                  可直接填写任意模型名，会原样传给 OpenAI-compatible 请求体的 `model` 字段
                 </p>
               </>
             ) : (
@@ -108,10 +112,10 @@ export function AIConfig({ config, onChange }: AIConfigProps) {
           </div>
 
           {/* Custom Endpoint */}
-          {config.provider === 'custom' && (
+          {isCustomProvider && (
             <div>
               <label className="block text-sm text-gray-600 mb-1.5">
-                自定义端点
+                兼容端点
               </label>
               <input
                 type="text"
@@ -121,7 +125,7 @@ export function AIConfig({ config, onChange }: AIConfigProps) {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary"
               />
               <p className="text-xs text-gray-400 mt-1">
-                输入自定义 API 端点地址
+                输入 OpenAI-compatible Chat Completions 地址，例如 `/v1/chat/completions`
               </p>
             </div>
           )}

@@ -1,5 +1,5 @@
 import { Agent, type AgentTool } from '@mariozechner/pi-agent-core';
-import { Type, getModel, type Model } from '@mariozechner/pi-ai';
+import { Type, type Model } from '@mariozechner/pi-ai';
 import type {
   AIConfig,
   ElementSummary,
@@ -11,6 +11,14 @@ import type {
   ToolResult,
   WaitForResultData,
 } from '@/shared/types';
+import {
+  buildStagedMemory,
+  getOpenAICompatibleEndpoint,
+  summarizeToolLogs,
+  toOpenAICompatibleBaseUrl,
+  type MemoryEntry,
+  type ToolLogSummaryEntry,
+} from '@/shared/ai';
 import { truncateText } from '@/shared/utils';
 import { executeToolInContent } from './content-tool-bridge';
 
@@ -27,61 +35,15 @@ const BROWSER_AGENT_SYSTEM_PROMPT = `你是浏览器自动化助手，负责读�
 9. 连续失败或无法确认页面状态时，停止并请求用户澄清
 10. 完成任务后，用简洁自然语言汇报结果`;
 
-function normalizeCustomEndpoint(endpoint: string): string {
-  try {
-    const url = new URL(endpoint);
-    const host = url.hostname.toLowerCase();
-
-    if (host.includes('deepseek')) {
-      const path = url.pathname.replace(/\/+$/, '');
-      if (path === '' || path === '/') {
-        url.pathname = '/v1/chat/completions';
-      } else if (path === '/chat/completion' || path === '/chat/completions') {
-        url.pathname = '/v1/chat/completions';
-      } else if (path === '/v1/chat/completion') {
-        url.pathname = '/v1/chat/completions';
-      }
-    }
-
-    return url.toString();
-  } catch {
-    return endpoint;
-  }
-}
-
-function toOpenAIBaseUrl(endpoint: string): string {
-  const normalized = normalizeCustomEndpoint(endpoint);
-  try {
-    const url = new URL(normalized);
-    const path = url.pathname.replace(/\/+$/, '');
-
-    const suffixes = ['/v1/chat/completions', '/chat/completions'];
-    for (const suffix of suffixes) {
-      if (path.endsWith(suffix)) {
-        const nextPath = path.slice(0, -suffix.length) || (suffix.startsWith('/v1') ? '/v1' : '');
-        url.pathname = nextPath || '/';
-        return url.toString().replace(/\/$/, '');
-      }
-    }
-
-    return normalized.replace(/\/$/, '');
-  } catch {
-    return normalized.replace(/\/chat\/completions\/?$/, '').replace(/\/$/, '');
-  }
-}
-
 function createOpenAICompatibleModel(config: AIConfig): Model<'openai-completions'> {
-  const endpoint =
-    config.provider === 'custom' && config.customEndpoint
-      ? config.customEndpoint
-      : 'https://api.openai.com/v1/chat/completions';
+  const endpoint = getOpenAICompatibleEndpoint(config);
 
   return {
     id: config.model,
     name: config.model,
     api: 'openai-completions',
     provider: config.provider === 'custom' ? 'custom' : 'openai',
-    baseUrl: toOpenAIBaseUrl(endpoint),
+    baseUrl: toOpenAICompatibleBaseUrl(endpoint),
     reasoning: false,
     input: ['text', 'image'],
     cost: {
@@ -101,21 +63,50 @@ function createOpenAICompatibleModel(config: AIConfig): Model<'openai-completion
 }
 
 function createModelFromConfig(config: AIConfig): Model<any> {
-  if (config.provider === 'openai' || config.provider === 'custom') {
-    return createOpenAICompatibleModel(config);
-  }
-
-  try {
-    return getModel(config.provider as any, config.model as any);
-  } catch {
-    throw new Error(`当前自动化模式暂不支持提供商 ${config.provider} / 模型 ${config.model}`);
-  }
+  return createOpenAICompatibleModel(config);
 }
 
 function summarizeElement(element?: ElementSummary) {
   if (!element) return 'unknown element';
   const pieces = [element.tag, element.labelText, element.text, element.placeholder].filter(Boolean);
   return pieces.join(' | ') || element.id;
+}
+
+function extractMessageText(message: any): string {
+  if (!message) {
+    return '';
+  }
+
+  if (typeof message.content === 'string') {
+    return message.content;
+  }
+
+  if (!Array.isArray(message.content)) {
+    return '';
+  }
+
+  return message.content
+    .map((item: any) => {
+      if (typeof item === 'string') {
+        return item;
+      }
+      if (item?.type === 'text') {
+        return item.text || '';
+      }
+      if (item?.type === 'tool_result') {
+        if (typeof item.content === 'string') {
+          return item.content;
+        }
+        if (Array.isArray(item.content)) {
+          return item.content
+            .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
+            .join('\n');
+        }
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 function summarizeToolResult(result: ToolResult): string {
@@ -399,8 +390,61 @@ export function extractAssistantText(message: any): string {
     .join('');
 }
 
+function buildAgentMemoryEntries(messages: any[]): MemoryEntry[] {
+  return messages
+    .map((message) => ({
+      role: message.role,
+      text: extractMessageText(message),
+      timestamp: message.timestamp,
+    }))
+    .filter((entry) => entry.text.trim());
+}
+
+function buildAgentToolEntries(messages: any[]): ToolLogSummaryEntry[] {
+  return messages
+    .filter((message) => message?.role === 'tool')
+    .map((message) => ({
+      toolName: message.name || 'tool',
+      status: 'success' as const,
+      summary: extractMessageText(message),
+      resultText: extractMessageText(message),
+    }))
+    .filter((entry) => entry.summary.trim());
+}
+
 function pruneMessages(messages: any[]) {
-  return messages.length > 12 ? messages.slice(-12) : messages;
+  const memoryEntries = buildAgentMemoryEntries(messages);
+  const stagedMemory = buildStagedMemory(memoryEntries);
+  const toolSummary = summarizeToolLogs(buildAgentToolEntries(messages));
+
+  const pruned = messages.length > 8 ? messages.slice(-8) : messages;
+  const syntheticMessages: any[] = [];
+
+  if (stagedMemory.longTermSummary) {
+    syntheticMessages.push({
+      role: 'user',
+      content: stagedMemory.longTermSummary,
+      timestamp: Date.now(),
+    });
+  }
+
+  if (stagedMemory.stageSummary) {
+    syntheticMessages.push({
+      role: 'user',
+      content: stagedMemory.stageSummary,
+      timestamp: Date.now(),
+    });
+  }
+
+  if (toolSummary) {
+    syntheticMessages.push({
+      role: 'user',
+      content: toolSummary,
+      timestamp: Date.now(),
+    });
+  }
+
+  return [...syntheticMessages, ...pruned];
 }
 
 export function createBrowserAgent(

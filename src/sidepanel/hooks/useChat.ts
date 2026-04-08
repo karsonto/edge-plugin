@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { Agent, type AgentEvent } from '@mariozechner/pi-agent-core';
 import type { AIConfig, ChatMessage, PageContext, SelectedScreenshotTarget } from '@/shared/types';
+import {
+  buildStagedMemory,
+  getOrCreatePageSummary,
+  summarizeToolLogs,
+  type MemoryEntry,
+  type ToolLogSummaryEntry,
+} from '@/shared/ai';
 import { sendToBackground, sendToContentScript, createMessage, onMessage, generateMessageId, truncateText } from '@/shared/utils';
 import {
   createBrowserAgent,
@@ -25,6 +32,8 @@ interface Message {
     details?: unknown;
   };
 }
+
+type ChatHistoryMessage = Message;
 
 interface ChatStore {
   messages: Message[];
@@ -52,6 +61,7 @@ export const useChat = create<ChatStore>((set, get) => {
   let injectedPageContext: string | null = null;
   let currentAgentAssistantUiId: string | null = null;
   let currentToolStatusMessageId: string | null = null;
+  const pageSummaryCache = new Map<string, { cacheKey: string; summary: string }>();
 
   const PAGE_UNDERSTANDING_PATTERNS = [
     /总结/,
@@ -356,6 +366,81 @@ export const useChat = create<ChatStore>((set, get) => {
     return browserAgent;
   };
 
+  const buildMemoryEntries = (messages: ChatHistoryMessage[]): MemoryEntry[] =>
+    messages
+      .filter((msg) => msg.kind !== 'tool_log' && msg.content.trim())
+      .map((msg) => ({
+        role: msg.role,
+        text: msg.content,
+        timestamp: msg.timestamp,
+      }));
+
+  const buildToolLogEntries = (messages: ChatHistoryMessage[]): ToolLogSummaryEntry[] =>
+    messages
+      .filter((msg): msg is ChatHistoryMessage & { toolLog: NonNullable<Message['toolLog']> } => Boolean(msg.toolLog))
+      .map((msg) => ({
+        toolName: msg.toolLog.toolName,
+        status: msg.toolLog.status,
+        summary: msg.toolLog.summary,
+        intent: msg.toolLog.intent,
+        resultText: msg.toolLog.resultText,
+      }));
+
+  const buildStagedChatMessages = (
+    messages: ChatHistoryMessage[],
+    pageContext?: PageContext
+  ): ChatMessage[] => {
+    const memoryEntries = buildMemoryEntries(messages);
+    const stagedMemory = buildStagedMemory(memoryEntries);
+    const toolSummary = summarizeToolLogs(buildToolLogEntries(messages));
+    const recentEntries = memoryEntries.slice(stagedMemory.recentStartIndex);
+
+    const chatMessages: ChatMessage[] = [];
+
+    if (pageContext) {
+      const pageSummary = getOrCreatePageSummary(pageSummaryCache, pageContext);
+      chatMessages.push({
+        role: 'system',
+        content: `${pageSummary.summary}\n\n请优先依据摘要与近期消息作答，只有在摘要不足时再依赖后续原始内容。`,
+        timestamp: Date.now(),
+      });
+    }
+
+    if (stagedMemory.longTermSummary) {
+      chatMessages.push({
+        role: 'system',
+        content: stagedMemory.longTermSummary,
+        timestamp: Date.now(),
+      });
+    }
+
+    if (stagedMemory.stageSummary) {
+      chatMessages.push({
+        role: 'system',
+        content: stagedMemory.stageSummary,
+        timestamp: Date.now(),
+      });
+    }
+
+    if (toolSummary) {
+      chatMessages.push({
+        role: 'system',
+        content: toolSummary,
+        timestamp: Date.now(),
+      });
+    }
+
+    recentEntries.forEach((entry) => {
+      chatMessages.push({
+        role: entry.role,
+        content: truncateText(entry.text),
+        timestamp: entry.timestamp,
+      });
+    });
+
+    return chatMessages;
+  };
+
   onMessage((message) => {
     const { currentStreamingId, messages } = get();
 
@@ -436,10 +521,12 @@ export const useChat = create<ChatStore>((set, get) => {
   const handleBrowserAutomationMode = async (
     userMessage: Message,
     settings: AIConfig,
-    pageContent?: string
+    pageContext?: PageContext
   ) => {
     shouldStop = false;
-    injectedPageContext = pageContent || null;
+    injectedPageContext = pageContext
+      ? getOrCreatePageSummary(pageSummaryCache, pageContext).summary
+      : null;
 
     try {
       const agent = ensureBrowserAgent(settings);
@@ -456,34 +543,13 @@ export const useChat = create<ChatStore>((set, get) => {
   const handleStreamMode = async (
     userMessage: Message,
     settings: AIConfig,
-    context?: string
+    pageContext?: PageContext
   ) => {
     shouldStop = false;
     currentAbortController = new AbortController();
 
     try {
-      const chatMessages: ChatMessage[] = get().messages.map((msg) => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-        timestamp: msg.timestamp,
-      }));
-
-      if (typeof context === 'string' && context.trim()) {
-        const ctx = truncateText(context.trim());
-        chatMessages.unshift({
-          role: 'system',
-          content: `以下是当前网页抓取内容（仅供参考，回答时不必逐字复述）：\n\n${ctx}`,
-          timestamp: Date.now(),
-        });
-      }
-
-      chatMessages.push({
-        id: userMessage.id,
-        role: 'user',
-        content: userMessage.content,
-        timestamp: userMessage.timestamp,
-      });
+      const chatMessages = buildStagedChatMessages(get().messages, pageContext);
 
       const response: any = await sendToBackground(
         createMessage('SEND_TO_AI', {
@@ -580,20 +646,20 @@ export const useChat = create<ChatStore>((set, get) => {
           await handleStreamMode(
             userMessage,
             settings,
-            pageContext?.content
+            pageContext
           );
         } else if (settings.enableFunctionCalling) {
           console.log('[Browser Automation] 模式已启用');
           await handleBrowserAutomationMode(
             userMessage,
             settings,
-            shouldIncludeContent ? pageContext.content : undefined
+            shouldIncludeContent ? pageContext : undefined
           );
         } else {
           await handleStreamMode(
             userMessage,
             settings,
-            shouldIncludeContent ? pageContext.content : undefined
+            shouldIncludeContent ? pageContext : undefined
           );
         }
       } catch (error) {

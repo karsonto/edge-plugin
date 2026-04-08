@@ -180,16 +180,16 @@ function App() {
   const handleSend = () => {
     if (!inputValue.trim() || isLoading) return;
     
-    // 如果不是自定义端点，检查 API Key
-    if (ai.provider !== 'custom' && !ai.apiKey) {
-      alert('请先在设置中配置 API Key');
+    // OpenAI 官方模式必须配置 API Key
+    if (ai.provider === 'openai' && !ai.apiKey) {
+      alert('请先在设置中配置 OpenAI API Key');
       setActiveTab('settings');
       return;
     }
 
-    // 如果是自定义端点，检查端点是否配置
+    // 自定义兼容端需要显式配置端点
     if (ai.provider === 'custom' && !ai.customEndpoint) {
-      alert('请先在设置中配置自定义端点');
+      alert('请先在设置中配置 OpenAI-compatible 端点');
       setActiveTab('settings');
       return;
     }
@@ -204,16 +204,16 @@ function App() {
 
   // 处理快捷操作点击
   const handleQuickAction = (action: any) => {
-    // 如果不是自定义端点，检查 API Key
-    if (ai.provider !== 'custom' && !ai.apiKey) {
-      alert('请先在设置中配置 API Key');
+    // OpenAI 官方模式必须配置 API Key
+    if (ai.provider === 'openai' && !ai.apiKey) {
+      alert('请先在设置中配置 OpenAI API Key');
       setActiveTab('settings');
       return;
     }
 
-    // 如果是自定义端点，检查端点是否配置
+    // 自定义兼容端需要显式配置端点
     if (ai.provider === 'custom' && !ai.customEndpoint) {
-      alert('请先在设置中配置自定义端点');
+      alert('请先在设置中配置 OpenAI-compatible 端点');
       setActiveTab('settings');
       return;
     }
@@ -382,7 +382,11 @@ function App() {
                 actions={quickActions}
                 onActionClick={handleQuickAction}
                 onEditClick={handleEditQuickActions}
-                disabled={isLoading || (ai.provider !== 'custom' && !ai.apiKey) || (ai.provider === 'custom' && !ai.customEndpoint)}
+                disabled={
+                  isLoading ||
+                  (ai.provider === 'openai' && !ai.apiKey) ||
+                  (ai.provider === 'custom' && !ai.customEndpoint)
+                }
               />
             )}
 

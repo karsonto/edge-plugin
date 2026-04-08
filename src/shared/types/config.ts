@@ -14,9 +14,11 @@ export interface QuickAction {
 }
 
 /**
- * AI 提供商类型
+ * AI 服务类型
+ * - openai: OpenAI 官方 Chat Completions
+ * - custom: 任意 OpenAI-compatible Chat Completions 端点
  */
-export type AIProvider = 'openai' | 'anthropic' | 'gemini' | 'custom';
+export type AIProvider = 'openai' | 'custom';
 
 /**
  * AI 配置
@@ -76,60 +78,3 @@ export interface AppConfig {
   behavior: BehaviorSettings;
   privacy: PrivacySettings;
 }
-
-/**
- * 默认配置
- */
-export const DEFAULT_QUICK_ACTIONS: QuickAction[] = [
-  {
-    id: 'summarize',
-    emoji: '📝',
-    name: '总结文章',
-    prompt: '请用 3-5 个要点总结以下内容的核心观点：\n\n{context}',
-    order: 0,
-  },
-  {
-    id: 'translate',
-    emoji: '🌐',
-    name: '翻译成英文',
-    prompt: '请将以下内容翻译成英文：\n\n{context}',
-    order: 1,
-  },
-  {
-    id: 'explain',
-    emoji: '💡',
-    name: '解释概念',
-    prompt: '请解释以下内容中的专业术语和关键概念：\n\n{context}',
-    order: 2,
-  },
-  {
-    id: 'extract',
-    emoji: '❓',
-    name: '提取要点',
-    prompt: '请从以下内容中提取关键问题和要点：\n\n{context}',
-    order: 3,
-  },
-];
-
-export const DEFAULT_CONFIG: AppConfig = {
-  ai: {
-    provider: 'openai',
-    apiKey: '',
-    model: 'gpt-4-turbo-preview',
-    temperature: 0.7,
-    maxTokens: 65535,
-    enableFunctionCalling: false,  // 默认关闭浏览器自动化模式
-  },
-  quickActions: DEFAULT_QUICK_ACTIONS,
-  ui: {
-    theme: 'auto',
-    fontSize: 'medium',
-  },
-  behavior: {
-    autoCapture: true,
-    showFloatingButton: true,
-  },
-  privacy: {
-    excludeDomains: [],
-  },
-};

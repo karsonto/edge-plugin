@@ -21,12 +21,10 @@ export const MESSAGE_TIMEOUT = 30000;
 export const MAX_CONTENT_LENGTH = 50000;
 
 /**
- * API 端点
+ * OpenAI-compatible Chat Completions 默认端点
  */
 export const API_ENDPOINTS = {
   OPENAI: 'https://api.openai.com/v1/chat/completions',
-  ANTHROPIC: 'https://api.anthropic.com/v1/messages',
-  GEMINI: 'https://generativelanguage.googleapis.com/v1/models',
 } as const;
 
 /**
@@ -37,15 +35,6 @@ export const MODEL_OPTIONS: Record<string, Array<{ value: string; label: string 
     { value: 'gpt-4-turbo-preview', label: 'GPT-4 Turbo' },
     { value: 'gpt-4', label: 'GPT-4' },
     { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
-  ],
-  anthropic: [
-    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
-    { value: 'claude-3-sonnet-20240229', label: 'Claude 3 Sonnet' },
-    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku' },
-  ],
-  gemini: [
-    { value: 'gemini-pro', label: 'Gemini Pro' },
-    { value: 'gemini-ultra', label: 'Gemini Ultra' },
   ],
   custom: [
     { value: 'qwen3', label: 'Qwen3' },
