@@ -46,9 +46,7 @@ export function ContextPreview({ context, isLoading }: ContextPreviewProps) {
       </div>
     );
   }
-  const displayContent = isExpanded
-    ? content
-    : content.substring(0, 150) + (content.length > 150 ? '...' : '');
+  const displayContent = content;
 
   return (
     <div className="p-4 bg-gray-50 border-b border-gray-200">
@@ -80,9 +78,14 @@ export function ContextPreview({ context, isLoading }: ContextPreviewProps) {
       </h3>
 
       {/* Content Preview */}
-      <p className="text-xs text-gray-600 leading-relaxed mb-3 whitespace-pre-wrap break-words">
+      <div
+        className={
+          "text-xs text-gray-600 leading-relaxed mb-3 whitespace-pre-wrap break-words overflow-y-auto transition-all " +
+          (isExpanded ? "h-48" : "h-24")
+        }
+      >
         {displayContent}
-      </p>
+      </div>
 
       {/* Metadata */}
       <div className="flex flex-wrap gap-3 text-xs text-gray-500">
