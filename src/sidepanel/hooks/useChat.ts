@@ -33,7 +33,6 @@ interface ChatStore {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
-  lastPageUrl: string | null;
   selectedScreenshotTarget: SelectedScreenshotTarget | null;
 
   sendMessage: (content: string, settings: AIConfig, pageContext?: PageContext) => Promise<void>;
@@ -351,7 +350,6 @@ export const useChat = create<ChatStore>((set, get) => {
     messages: [],
     isLoading: false,
     error: null,
-    lastPageUrl: null,
     selectedScreenshotTarget: null,
 
     sendMessage: async (content: string, settings: AIConfig, pageContext?: PageContext) => {
@@ -364,15 +362,8 @@ export const useChat = create<ChatStore>((set, get) => {
         timestamp: Date.now(),
       };
 
-      const { lastPageUrl } = get();
-      const currentUrl = pageContext?.url;
-      const shouldIncludeContent = pageContext && currentUrl !== lastPageUrl;
-
-      if (shouldIncludeContent && currentUrl) {
-        set({ lastPageUrl: currentUrl });
-        console.log('[PageContext] 传入页面内容，URL:', currentUrl);
-      } else if (pageContext && currentUrl === lastPageUrl) {
-        console.log('[PageContext] 跳过重复页面内容，URL:', currentUrl);
+      if (pageContext?.content?.trim()) {
+        console.log('[PageContext] 本轮携带页面内容，URL:', pageContext.url);
       }
 
       set({
@@ -385,7 +376,7 @@ export const useChat = create<ChatStore>((set, get) => {
         await handleAgentMode(
           userMessage,
           settings,
-          shouldIncludeContent ? pageContext : undefined
+          pageContext
         );
       } catch (error) {
         if (shouldStop) {
@@ -416,7 +407,7 @@ export const useChat = create<ChatStore>((set, get) => {
       browserAgent?.reset();
       currentAgentAssistantUiId = null;
       currentToolStatusMessageId = null;
-      set({ messages: [], error: null, lastPageUrl: null, selectedScreenshotTarget: null });
+      set({ messages: [], error: null, selectedScreenshotTarget: null });
     },
 
     addMessage: (message: Message) => {

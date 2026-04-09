@@ -176,6 +176,12 @@ function App() {
     return pageContext;
   }, [includePageContext, pageContext, uploadedFiles.length, getFileContent]);
 
+  const closeIncludePageContextAfterSend = (carriedContext?: { content?: string }) => {
+    if (includePageContext && carriedContext?.content) {
+      setIncludePageContext(false);
+    }
+  };
+
   // 处理发送消息
   const handleSend = () => {
     if (!inputValue.trim() || isLoading) return;
@@ -198,7 +204,13 @@ function App() {
     const aiConfigWithFC = { ...ai, enableFunctionCalling };
     // 构建合并后的上下文（网页 + 文件）
     const combinedContext = buildCombinedContext();
+    if (includePageContext && !combinedContext?.content) {
+      alert('无法获取内容，请刷新页面或上传文件后重试');
+      return;
+    }
+
     sendMessage(inputValue, aiConfigWithFC, combinedContext);
+    closeIncludePageContextAfterSend(combinedContext);
     setInputValue('');
   };
 
@@ -233,6 +245,7 @@ function App() {
 
       setInputValue('');
       sendMessage(prompt, aiConfigWithFC, combinedContext);
+      closeIncludePageContextAfterSend(combinedContext);
       return;
     }
 
