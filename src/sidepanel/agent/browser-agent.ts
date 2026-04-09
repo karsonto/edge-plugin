@@ -1,7 +1,20 @@
 import { Agent, type AgentTool } from '@mariozechner/pi-agent-core';
-import { Type, type Model } from '@mariozechner/pi-ai';
+import {
+  Type,
+  type AssistantMessage,
+  type ImageContent,
+  type Message as PiMessage,
+  type Model,
+  type TextContent,
+  type ThinkingContent,
+  type ToolCall as PiToolCall,
+  type ToolResultMessage,
+  type UserMessage,
+  type Usage,
+} from '@mariozechner/pi-ai';
 import type {
   AIConfig,
+  ChatMessage,
   ElementSummary,
   InspectElementData,
   InteractResultData,
@@ -19,6 +32,7 @@ import {
   type MemoryEntry,
   type ToolLogSummaryEntry,
 } from '@/shared/ai';
+import { DEFAULT_RECENT_RAW_MESSAGE_COUNT } from '@/shared/constants';
 import { createMessage, generateMessageId, sendToBackground, truncateText } from '@/shared/utils';
 import { executeToolInContent } from './content-tool-bridge';
 
@@ -106,6 +120,9 @@ function extractMessageText(message: any): string {
       if (item?.type === 'text') {
         return item.text || '';
       }
+      if (item?.type === 'thinking') {
+        return item.thinking || '';
+      }
       if (item?.type === 'tool_result') {
         if (typeof item.content === 'string') {
           return item.content;
@@ -120,6 +137,261 @@ function extractMessageText(message: any): string {
     })
     .filter(Boolean)
     .join('\n');
+}
+
+interface BrowserAgentSystemMessage {
+  role: 'system';
+  content: string;
+  timestamp: number;
+}
+
+type BrowserAgentContextMessage = PiMessage | BrowserAgentSystemMessage;
+
+function createEmptyUsage(): Usage {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 0,
+    },
+  };
+}
+
+function toTextContent(text: string): TextContent[] {
+  const normalized = text.trim();
+  return normalized ? [{ type: 'text', text: normalized }] : [];
+}
+
+function normalizeUserContent(content: unknown): UserMessage['content'] {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return extractMessageText({ content });
+  }
+
+  const normalized: UserMessage['content'] = content.flatMap((item: any): Array<TextContent | ImageContent> => {
+    if (typeof item === 'string') {
+      return toTextContent(item);
+    }
+    if (item?.type === 'text' && typeof item.text === 'string') {
+      return [{ type: 'text' as const, text: item.text }];
+    }
+    if (item?.type === 'image' && typeof item.data === 'string' && typeof item.mimeType === 'string') {
+      return [{
+        type: 'image' as const,
+        data: item.data,
+        mimeType: item.mimeType,
+      }];
+    }
+    return [];
+  });
+
+  return normalized.length > 0 ? normalized : extractMessageText({ content });
+}
+
+function normalizeAssistantContent(content: unknown): AssistantMessage['content'] {
+  if (!Array.isArray(content)) {
+    return toTextContent(extractMessageText({ content }));
+  }
+
+  return content.flatMap((item: any): Array<TextContent | ThinkingContent | PiToolCall> => {
+    if (typeof item === 'string') {
+      return toTextContent(item);
+    }
+    if (item?.type === 'text' && typeof item.text === 'string') {
+      return [{
+        type: 'text' as const,
+        text: item.text,
+        ...(typeof item.textSignature === 'string' ? { textSignature: item.textSignature } : {}),
+      }];
+    }
+    if (item?.type === 'thinking') {
+      const thinking = typeof item.thinking === 'string' ? item.thinking : '';
+      if (!thinking && !item?.thinkingSignature) {
+        return [];
+      }
+      return [{
+        type: 'thinking' as const,
+        thinking,
+        ...(typeof item.thinkingSignature === 'string'
+          ? { thinkingSignature: item.thinkingSignature }
+          : {}),
+        ...(item?.redacted ? { redacted: true } : {}),
+      }];
+    }
+    if (
+      item?.type === 'toolCall' &&
+      typeof item.id === 'string' &&
+      typeof item.name === 'string' &&
+      item.arguments &&
+      typeof item.arguments === 'object' &&
+      !Array.isArray(item.arguments)
+    ) {
+      return [{
+        type: 'toolCall' as const,
+        id: item.id,
+        name: item.name,
+        arguments: item.arguments,
+        ...(typeof item.thoughtSignature === 'string'
+          ? { thoughtSignature: item.thoughtSignature }
+          : {}),
+      }];
+    }
+    return [];
+  });
+}
+
+function normalizeToolResultContent(content: unknown): ToolResultMessage['content'] {
+  if (!Array.isArray(content)) {
+    return toTextContent(extractMessageText({ content }));
+  }
+
+  return content.flatMap((item: any): Array<TextContent | ImageContent> => {
+    if (typeof item === 'string') {
+      return toTextContent(item);
+    }
+    if (item?.type === 'text' && typeof item.text === 'string') {
+      return [{ type: 'text' as const, text: item.text }];
+    }
+    if (item?.type === 'image' && typeof item.data === 'string' && typeof item.mimeType === 'string') {
+      return [{
+        type: 'image' as const,
+        data: item.data,
+        mimeType: item.mimeType,
+      }];
+    }
+    return [];
+  });
+}
+
+function normalizeReplayMessage(message: any, config: AIConfig): BrowserAgentContextMessage | null {
+  if (!message || typeof message !== 'object') {
+    return null;
+  }
+
+  if (message.role === 'system') {
+    const content = extractMessageText(message).trim();
+    if (!content) {
+      return null;
+    }
+    return {
+      role: 'system',
+      content,
+      timestamp: message.timestamp || Date.now(),
+    };
+  }
+
+  if (message.role === 'user') {
+    return {
+      role: 'user',
+      content: normalizeUserContent(message.content),
+      timestamp: message.timestamp || Date.now(),
+    };
+  }
+
+  if (message.role === 'assistant') {
+    return {
+      role: 'assistant',
+      content: normalizeAssistantContent(message.content),
+      api: message.api || 'openai-completions',
+      provider: message.provider || (config.provider === 'custom' ? 'custom' : 'openai'),
+      model: message.model || config.model,
+      responseId: message.responseId,
+      usage: message.usage || createEmptyUsage(),
+      stopReason: message.stopReason || 'stop',
+      errorMessage: message.errorMessage,
+      timestamp: message.timestamp || Date.now(),
+    };
+  }
+
+  if (message.role === 'toolResult') {
+    return {
+      role: 'toolResult',
+      toolCallId: message.toolCallId || message.tool_call_id || message.id || generateMessageId(),
+      toolName: message.toolName || message.name || 'tool',
+      content: normalizeToolResultContent(message.content),
+      details: message.details,
+      isError: Boolean(message.isError),
+      timestamp: message.timestamp || Date.now(),
+    };
+  }
+
+  if (message.role === 'tool') {
+    const content = extractMessageText(message).trim();
+    if (!content) {
+      return null;
+    }
+    return {
+      role: 'system',
+      content: `[历史工具结果]\n${message.name || 'tool'}: ${content}`,
+      timestamp: message.timestamp || Date.now(),
+    };
+  }
+
+  return null;
+}
+
+function normalizeReplayMessages(messages: any[], config: AIConfig): BrowserAgentContextMessage[] {
+  return messages
+    .map((message) => normalizeReplayMessage(message, config))
+    .filter((message): message is BrowserAgentContextMessage => Boolean(message));
+}
+
+function toCompressionMessages(messages: BrowserAgentContextMessage[]): ChatMessage[] {
+  return messages.map((message) => {
+    if (message.role === 'toolResult') {
+      return {
+        role: 'tool',
+        content: extractMessageText(message),
+        timestamp: message.timestamp,
+        name: message.toolName,
+        tool_call_id: message.toolCallId,
+      };
+    }
+
+    return {
+      role: message.role,
+      content: message.role === 'user'
+        ? (typeof message.content === 'string' ? message.content : extractMessageText(message))
+        : extractMessageText(message),
+      timestamp: message.timestamp,
+    };
+  });
+}
+
+function buildRecentReplayWindow(messages: BrowserAgentContextMessage[]) {
+  const replayableMessages = messages.filter((message) => message.role !== 'system');
+  const recent = replayableMessages.slice(-DEFAULT_RECENT_RAW_MESSAGE_COUNT);
+  const latestUserMessage = [...replayableMessages].reverse().find((message) => message.role === 'user');
+
+  if (!latestUserMessage) {
+    return recent;
+  }
+
+  if (recent.includes(latestUserMessage)) {
+    return recent;
+  }
+
+  return [...recent, latestUserMessage];
+}
+
+function toSystemContextMessages(messages: ChatMessage[]): BrowserAgentSystemMessage[] {
+  return messages
+    .filter((message) => message.role === 'system' && typeof message.content === 'string' && message.content.trim())
+    .map((message) => ({
+      role: 'system' as const,
+      content: message.content!.trim(),
+      timestamp: message.timestamp || Date.now(),
+    }));
 }
 
 function summarizeToolResult(result: ToolResult): string {
@@ -431,46 +703,40 @@ function buildAgentToolEntries(messages: any[]): ToolLogSummaryEntry[] {
     .filter((entry) => entry.summary.trim());
 }
 
-function toAgentChatMessages(messages: any[]) {
-  return messages.map((message) => ({
-    role: message.role,
-    content: extractMessageText(message),
-    timestamp: message.timestamp,
-    tool_calls: message.tool_calls,
-    tool_call_id: message.tool_call_id,
-    name: message.name,
-  }));
-}
-
 function buildInitialAgentMessages(
   messages: any[],
   config: AIConfig,
   getInjectedContext: () => string | null
 ) {
-  const baseMessages = toAgentChatMessages(messages);
-  const latestToolMessage = [...baseMessages].reverse().find((message) => message.role === 'tool');
+  const replayMessages = normalizeReplayMessages(messages, config);
+  const compressionMessages = toCompressionMessages(replayMessages);
+  const latestToolMessage = [...compressionMessages].reverse().find((message) => message.role === 'tool');
   const pageSummary = getInjectedContext()?.trim();
 
-  const firstPass = budgetCompactMessages(baseMessages, config, {
+  const firstPass = budgetCompactMessages(compressionMessages, config, {
     buildMemoryEntries: (chatMessages) => buildAgentMemoryEntries(chatMessages),
     buildToolEntries: (chatMessages) => buildAgentToolEntries(chatMessages),
     continuity: null,
     pinnedMemory: {
-      latestUserInput: [...baseMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
+      latestUserInput: [...compressionMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
       latestExecutionOutcome: latestToolMessage?.content || undefined,
     },
   });
 
-  return pageSummary
-    ? [
-        {
-          role: 'system' as const,
-          content: pageSummary,
-          timestamp: Date.now(),
-        },
-        ...firstPass.messages,
-      ]
-    : firstPass.messages;
+  const summaryMessages = toSystemContextMessages(firstPass.messages);
+  const recentReplayMessages = buildRecentReplayWindow(replayMessages);
+  const result: BrowserAgentContextMessage[] = [];
+
+  if (pageSummary) {
+    result.push({
+      role: 'system',
+      content: pageSummary,
+      timestamp: Date.now(),
+    });
+  }
+
+  result.push(...summaryMessages, ...recentReplayMessages);
+  return result;
 }
 
 async function pruneMessages(
@@ -479,37 +745,37 @@ async function pruneMessages(
   getInjectedContext: () => string | null,
   continuitySummaryState: ContinuitySummaryState | null
 ) {
-  const baseMessages = toAgentChatMessages(messages);
-  const latestToolMessage = [...baseMessages].reverse().find((message) => message.role === 'tool');
+  const replayMessages = normalizeReplayMessages(messages, config);
+  const compressionMessages = toCompressionMessages(replayMessages);
+  const latestToolMessage = [...compressionMessages].reverse().find((message) => message.role === 'tool');
   const pageSummary = getInjectedContext()?.trim();
 
-  const firstPass = budgetCompactMessages(baseMessages, config, {
+  const firstPass = budgetCompactMessages(compressionMessages, config, {
     buildMemoryEntries: (chatMessages) => buildAgentMemoryEntries(chatMessages),
     buildToolEntries: (chatMessages) => buildAgentToolEntries(chatMessages),
     continuity: continuitySummaryState,
     pinnedMemory: {
-      latestUserInput: [...baseMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
+      latestUserInput: [...compressionMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
       latestExecutionOutcome: latestToolMessage?.content || undefined,
     },
   });
 
   if (!firstPass.needsContinuitySummary) {
-    const withPageSummary = pageSummary
-      ? [
-          {
-            role: 'system' as const,
-            content: pageSummary,
-            timestamp: Date.now(),
-          },
-          ...firstPass.messages,
-        ]
-      : firstPass.messages;
-    return { messages: withPageSummary, continuity: continuitySummaryState };
+    const result: BrowserAgentContextMessage[] = [];
+    if (pageSummary) {
+      result.push({
+        role: 'system',
+        content: pageSummary,
+        timestamp: Date.now(),
+      });
+    }
+    result.push(...toSystemContextMessages(firstPass.messages), ...buildRecentReplayWindow(replayMessages));
+    return { messages: result, continuity: continuitySummaryState };
   }
 
   const continuityResponse: any = await sendToBackground(
     createMessage('GENERATE_CONTINUITY_SUMMARY', {
-      messages: baseMessages,
+      messages: compressionMessages,
       settings: config,
       pageSummary,
     })
@@ -519,34 +785,32 @@ async function pruneMessages(
   const nextContinuity = summary
     ? {
         summary,
-        coveredMessageCount: baseMessages.length,
+        coveredMessageCount: compressionMessages.length,
         summaryId: generateMessageId(),
         timestamp: Date.now(),
       }
     : continuitySummaryState;
 
-  const secondPass = budgetCompactMessages(baseMessages, config, {
+  const secondPass = budgetCompactMessages(compressionMessages, config, {
     buildMemoryEntries: (chatMessages) => buildAgentMemoryEntries(chatMessages),
     buildToolEntries: (chatMessages) => buildAgentToolEntries(chatMessages),
     continuity: nextContinuity,
     pinnedMemory: {
-      latestUserInput: [...baseMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
+      latestUserInput: [...compressionMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
       latestExecutionOutcome: latestToolMessage?.content || undefined,
     },
   });
 
-  const withPageSummary = pageSummary
-    ? [
-        {
-          role: 'system' as const,
-          content: pageSummary,
-          timestamp: Date.now(),
-        },
-        ...secondPass.messages,
-      ]
-    : secondPass.messages;
-
-  return { messages: withPageSummary, continuity: nextContinuity };
+  const result: BrowserAgentContextMessage[] = [];
+  if (pageSummary) {
+    result.push({
+      role: 'system',
+      content: pageSummary,
+      timestamp: Date.now(),
+    });
+  }
+  result.push(...toSystemContextMessages(secondPass.messages), ...buildRecentReplayWindow(replayMessages));
+  return { messages: result, continuity: nextContinuity };
 }
 
 export function createBrowserAgent(
