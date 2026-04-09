@@ -9,13 +9,7 @@ import type { SelectedScreenshotTarget, ToolCall, ToolResult } from './automatio
 export type MessageType =
   | 'GET_PAGE_CONTEXT'        // 获取页面内容
   | 'PAGE_CONTEXT_RESPONSE'   // 页面内容响应
-  | 'SEND_TO_AI'              // 发送消息到 AI
   | 'GENERATE_CONTINUITY_SUMMARY' // 生成连续性摘要
-  | 'AI_RESPONSE_START'       // AI 响应开始
-  | 'AI_RESPONSE_CHUNK'       // AI 响应片段（流式）
-  | 'AI_RESPONSE_END'         // AI 响应结束
-  | 'AI_RESPONSE_ERROR'       // AI 响应错误
-  | 'ABORT_AI'               // 中断正在进行的 AI 流式请求
   | 'EXECUTE_TOOL'            // background -> content 执行工具
   | 'ABORT_TOOL'              // 终止正在执行的工具
   | 'TOOL_RESULT'             // content -> background 工具执行结果
@@ -61,58 +55,12 @@ export interface PageContextResponseMessage extends BaseMessage {
   };
 }
 
-export interface SendToAIMessage extends BaseMessage {
-  type: 'SEND_TO_AI';
-  payload: {
-    messages: ChatMessage[];
-    settings: AIConfig;
-  };
-}
-
 export interface GenerateContinuitySummaryMessage extends BaseMessage {
   type: 'GENERATE_CONTINUITY_SUMMARY';
   payload: {
     messages: ChatMessage[];
     settings: AIConfig;
     pageSummary?: string;
-  };
-}
-
-export interface AIResponseStartMessage extends BaseMessage {
-  type: 'AI_RESPONSE_START';
-  payload: {
-    messageId: string;
-  };
-}
-
-export interface AIResponseChunkMessage extends BaseMessage {
-  type: 'AI_RESPONSE_CHUNK';
-  payload: {
-    messageId: string;
-    chunk: string;
-  };
-}
-
-export interface AIResponseEndMessage extends BaseMessage {
-  type: 'AI_RESPONSE_END';
-  payload: {
-    messageId: string;
-  };
-}
-
-export interface AIResponseErrorMessage extends BaseMessage {
-  type: 'AI_RESPONSE_ERROR';
-  payload: {
-    messageId: string;
-    error: string;
-    errorCode?: string;
-  };
-}
-
-export interface AbortAIMessage extends BaseMessage {
-  type: 'ABORT_AI';
-  payload: {
-    messageId: string;
   };
 }
 
@@ -185,13 +133,7 @@ export interface RefreshPageContextMessage extends BaseMessage {
 export type Message =
   | GetPageContextMessage
   | PageContextResponseMessage
-  | SendToAIMessage
   | GenerateContinuitySummaryMessage
-  | AIResponseStartMessage
-  | AIResponseChunkMessage
-  | AIResponseEndMessage
-  | AIResponseErrorMessage
-  | AbortAIMessage
   | ExecuteToolMessage
   | AbortToolMessage
   | ToolResultMessage

@@ -1,13 +1,10 @@
 import { create } from 'zustand';
 import { Agent, type AgentEvent } from '@mariozechner/pi-agent-core';
-import type { AIConfig, ChatMessage, PageContext, SelectedScreenshotTarget } from '@/shared/types';
+import type { AIConfig, PageContext, SelectedScreenshotTarget } from '@/shared/types';
 import {
-  budgetCompactMessages,
-  type ContinuitySummaryState,
   getOrCreatePageSummary,
-  type ToolLogSummaryEntry,
 } from '@/shared/ai';
-import { sendToBackground, sendToContentScript, createMessage, onMessage, generateMessageId } from '@/shared/utils';
+import { sendToContentScript, createMessage, onMessage, generateMessageId } from '@/shared/utils';
 import {
   createBrowserAgent,
   extractAssistantText,
@@ -32,13 +29,10 @@ interface Message {
   };
 }
 
-type ChatHistoryMessage = Message;
-
 interface ChatStore {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
-  currentStreamingId: string | null;
   lastPageUrl: string | null;
   selectedScreenshotTarget: SelectedScreenshotTarget | null;
 
@@ -52,8 +46,6 @@ interface ChatStore {
 
 export const useChat = create<ChatStore>((set, get) => {
   let shouldStop = false;
-  let currentAbortController: AbortController | null = null;
-  const stoppedStreamingMessageIds = new Set<string>();
   let browserAgent: Agent | null = null;
   let browserAgentConfigKey: string | null = null;
   let unsubscribeBrowserAgent: (() => void) | null = null;
@@ -61,53 +53,6 @@ export const useChat = create<ChatStore>((set, get) => {
   let currentAgentAssistantUiId: string | null = null;
   let currentToolStatusMessageId: string | null = null;
   const pageSummaryCache = new Map<string, { cacheKey: string; summary: string }>();
-  let continuitySummaryState: ContinuitySummaryState | null = null;
-
-  const PAGE_UNDERSTANDING_PATTERNS = [
-    /总结/,
-    /概括/,
-    /摘要/,
-    /翻译/,
-    /解释/,
-    /解读/,
-    /提取/,
-    /梳理/,
-    /分析.*(?:页面|网页|文章|内容)/,
-    /这页.*?(?:讲了什么|内容|主要内容)/,
-    /页面.*?(?:讲了什么|内容|主要内容)/,
-    /总结.*(?:页面|网页|文章|内容)/,
-  ];
-
-  const BROWSER_ACTION_PATTERNS = [
-    /点击/,
-    /输入/,
-    /填写/,
-    /选择/,
-    /提交/,
-    /等待/,
-    /查找元素/,
-    /定位/,
-    /按钮/,
-    /表单/,
-    /截图/,
-    /inspect/i,
-    /query/i,
-    /find/i,
-    /click/i,
-    /type/i,
-    /select/i,
-    /wait/i,
-  ];
-
-  const isPageUnderstandingRequest = (content: string) => {
-    const text = content.trim();
-    return PAGE_UNDERSTANDING_PATTERNS.some((pattern) => pattern.test(text));
-  };
-
-  const isBrowserActionRequest = (content: string) => {
-    const text = content.trim();
-    return BROWSER_ACTION_PATTERNS.some((pattern) => pattern.test(text));
-  };
 
   const getToolIntent = (toolName: string, args: Record<string, any> | undefined) => {
     if (!args) return `执行工具 \`${toolName}\``;
@@ -359,173 +304,18 @@ export const useChat = create<ChatStore>((set, get) => {
       settings,
       () => injectedPageContext,
       previousMessages,
-      () => get().selectedScreenshotTarget
+      {
+        enableTools: Boolean(settings.enableFunctionCalling),
+        getSelectedScreenshotTarget: () => get().selectedScreenshotTarget,
+      }
     );
     browserAgentConfigKey = nextConfigKey;
     unsubscribeBrowserAgent = browserAgent.subscribe(handleBrowserAgentEvent);
     return browserAgent;
   };
 
-  const buildToolLogEntries = (messages: ChatHistoryMessage[]): ToolLogSummaryEntry[] =>
-    messages
-      .filter((msg): msg is ChatHistoryMessage & { toolLog: NonNullable<Message['toolLog']> } => Boolean(msg.toolLog))
-      .map((msg) => ({
-        toolName: msg.toolLog.toolName,
-        status: msg.toolLog.status,
-        summary: msg.toolLog.summary,
-        intent: msg.toolLog.intent,
-        resultText: msg.toolLog.resultText,
-      }));
-
-  const buildCompressedChatMessages = async (
-    messages: ChatHistoryMessage[],
-    settings: AIConfig,
-    pageContext?: PageContext
-  ): Promise<ChatMessage[]> => {
-    const baseMessages: ChatMessage[] = messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-      timestamp: message.timestamp,
-    }));
-
-    const latestExecutionOutcome = [...messages]
-      .reverse()
-      .find((message) => message.kind === 'tool_log' && message.toolLog?.resultText?.trim())
-      ?.toolLog?.resultText;
-
-    const firstPass = budgetCompactMessages(baseMessages, settings, {
-      pageContext,
-      pageSummaryCache,
-      buildMemoryEntries: (chatMessages) =>
-        chatMessages
-          .filter((msg) => msg.role !== 'system' && (msg.content || '').trim())
-          .map((msg) => ({
-            role: msg.role,
-            text: msg.content || '',
-            timestamp: msg.timestamp,
-          })),
-      buildToolEntries: () => buildToolLogEntries(messages),
-      continuity: continuitySummaryState,
-      pinnedMemory: {
-        latestUserInput: messages[messages.length - 1]?.role === 'user'
-          ? messages[messages.length - 1]?.content
-          : undefined,
-        latestExecutionOutcome,
-      },
-    });
-
-    if (!firstPass.needsContinuitySummary) {
-      return firstPass.messages;
-    }
-
-    const continuityResponse: any = await sendToBackground(
-      createMessage('GENERATE_CONTINUITY_SUMMARY', {
-        messages: baseMessages,
-        settings,
-        pageSummary: firstPass.pageSummary,
-      })
-    );
-
-    const summary = continuityResponse?.payload?.summary?.trim();
-    if (summary) {
-      continuitySummaryState = {
-        summary,
-        coveredMessageCount: baseMessages.length,
-        summaryId: generateMessageId(),
-        timestamp: Date.now(),
-      };
-    }
-
-    return budgetCompactMessages(baseMessages, settings, {
-      pageContext,
-      pageSummaryCache,
-      buildMemoryEntries: (chatMessages) =>
-        chatMessages
-          .filter((msg) => msg.role !== 'system' && (msg.content || '').trim())
-          .map((msg) => ({
-            role: msg.role,
-            text: msg.content || '',
-            timestamp: msg.timestamp,
-          })),
-      buildToolEntries: () => buildToolLogEntries(messages),
-      continuity: continuitySummaryState,
-      pinnedMemory: {
-        latestUserInput: messages[messages.length - 1]?.role === 'user'
-          ? messages[messages.length - 1]?.content
-          : undefined,
-        latestExecutionOutcome,
-      },
-    }).messages;
-  };
-
   onMessage((message) => {
-    const { currentStreamingId, messages } = get();
-
     switch (message.type) {
-      case 'AI_RESPONSE_START': {
-        const newMessageId = message.payload.messageId;
-        set({
-          currentStreamingId: newMessageId,
-          messages: [
-            ...messages,
-            {
-              id: newMessageId,
-              role: 'assistant',
-              content: '',
-              timestamp: Date.now(),
-              isStreaming: true,
-            },
-          ],
-        });
-        break;
-      }
-
-      case 'AI_RESPONSE_CHUNK':
-        if (stoppedStreamingMessageIds.has(message.payload.messageId)) {
-          break;
-        }
-        if (message.payload.messageId === currentStreamingId) {
-          set({
-            messages: messages.map((msg) =>
-              msg.id === currentStreamingId
-                ? { ...msg, content: msg.content + message.payload.chunk }
-                : msg
-            ),
-          });
-        }
-        break;
-
-      case 'AI_RESPONSE_END':
-        if (stoppedStreamingMessageIds.has(message.payload.messageId)) {
-          stoppedStreamingMessageIds.delete(message.payload.messageId);
-          break;
-        }
-        if (message.payload.messageId === currentStreamingId) {
-          set({
-            messages: messages.map((msg) =>
-              msg.id === currentStreamingId ? { ...msg, isStreaming: false } : msg
-            ),
-            isLoading: false,
-            currentStreamingId: null,
-          });
-        }
-        break;
-
-      case 'AI_RESPONSE_ERROR':
-        if (stoppedStreamingMessageIds.has(message.payload.messageId)) {
-          stoppedStreamingMessageIds.delete(message.payload.messageId);
-          break;
-        }
-        if (message.payload.messageId === currentStreamingId) {
-          set({
-            error: message.payload.error,
-            isLoading: false,
-            currentStreamingId: null,
-            messages: messages.filter((msg) => msg.id !== currentStreamingId),
-          });
-        }
-        break;
-
       case 'SCREENSHOT_TARGET_PICKED':
         set({
           selectedScreenshotTarget: message.payload,
@@ -535,7 +325,7 @@ export const useChat = create<ChatStore>((set, get) => {
     }
   });
 
-  const handleBrowserAutomationMode = async (
+  const handleAgentMode = async (
     userMessage: Message,
     settings: AIConfig,
     pageContext?: PageContext
@@ -557,70 +347,10 @@ export const useChat = create<ChatStore>((set, get) => {
     }
   };
 
-  const handleStreamMode = async (
-    _userMessage: Message,
-    settings: AIConfig,
-    pageContext?: PageContext
-  ) => {
-    shouldStop = false;
-    currentAbortController = new AbortController();
-
-    try {
-      const chatMessages = await buildCompressedChatMessages(get().messages, settings, pageContext);
-
-      const response: any = await sendToBackground(
-        createMessage('SEND_TO_AI', {
-          messages: chatMessages,
-          settings,
-        })
-      );
-
-      if (response?.aborted) {
-        stoppedStreamingMessageIds.delete(response.messageId);
-        set({
-          isLoading: false,
-          currentStreamingId: null,
-          messages: [
-            ...get().messages,
-            {
-              id: generateMessageId(),
-              role: 'assistant',
-              content: '操作已中断。',
-              timestamp: Date.now(),
-            },
-          ],
-        });
-        return;
-      }
-
-      if (response?.type === 'ERROR') {
-        throw new Error(response?.payload?.error || 'AI 请求失败');
-      }
-    } catch (error) {
-      if (shouldStop) {
-        set({
-          isLoading: false,
-          messages: [
-            ...get().messages,
-            {
-              id: generateMessageId(),
-              role: 'assistant',
-              content: '操作已中断。',
-              timestamp: Date.now(),
-            },
-          ],
-        });
-        return;
-      }
-      throw error;
-    }
-  };
-
   return {
     messages: [],
     isLoading: false,
     error: null,
-    currentStreamingId: null,
     lastPageUrl: null,
     selectedScreenshotTarget: null,
 
@@ -637,12 +367,6 @@ export const useChat = create<ChatStore>((set, get) => {
       const { lastPageUrl } = get();
       const currentUrl = pageContext?.url;
       const shouldIncludeContent = pageContext && currentUrl !== lastPageUrl;
-      const hasFreshPageContext = Boolean(pageContext?.content?.trim());
-      const preferContextOnlyMode =
-        Boolean(settings.enableFunctionCalling) &&
-        hasFreshPageContext &&
-        isPageUnderstandingRequest(userMessage.content) &&
-        !isBrowserActionRequest(userMessage.content);
 
       if (shouldIncludeContent && currentUrl) {
         set({ lastPageUrl: currentUrl });
@@ -658,29 +382,14 @@ export const useChat = create<ChatStore>((set, get) => {
       });
 
       try {
-        if (preferContextOnlyMode) {
-          console.log('[PageContext] 检测到页面理解型问题，优先走纯文本上下文链路');
-          await handleStreamMode(
-            userMessage,
-            settings,
-            pageContext
-          );
-        } else if (settings.enableFunctionCalling) {
-          console.log('[Browser Automation] 模式已启用');
-          await handleBrowserAutomationMode(
-            userMessage,
-            settings,
-            shouldIncludeContent ? pageContext : undefined
-          );
-        } else {
-          await handleStreamMode(
-            userMessage,
-            settings,
-            shouldIncludeContent ? pageContext : undefined
-          );
-        }
+        await handleAgentMode(
+          userMessage,
+          settings,
+          shouldIncludeContent ? pageContext : undefined
+        );
       } catch (error) {
         if (shouldStop) {
+          removeStreamingAssistant();
           set({
             isLoading: false,
             messages: [
@@ -707,7 +416,6 @@ export const useChat = create<ChatStore>((set, get) => {
       browserAgent?.reset();
       currentAgentAssistantUiId = null;
       currentToolStatusMessageId = null;
-      continuitySummaryState = null;
       set({ messages: [], error: null, lastPageUrl: null, selectedScreenshotTarget: null });
     },
 
@@ -719,23 +427,10 @@ export const useChat = create<ChatStore>((set, get) => {
       shouldStop = true;
       browserAgent?.abort();
       currentToolStatusMessageId = null;
-      const activeStreamingId = get().currentStreamingId;
-      if (activeStreamingId) {
-        stoppedStreamingMessageIds.add(activeStreamingId);
-        sendToBackground(createMessage('ABORT_AI', { messageId: activeStreamingId })).catch(() => {
-          // noop
-        });
-      }
-      if (currentAbortController) {
-        currentAbortController.abort();
-        currentAbortController = null;
-      }
+      removeStreamingAssistant();
       set({
         isLoading: false,
-        currentStreamingId: null,
-        messages: get().messages.map((msg) =>
-          msg.id === activeStreamingId ? { ...msg, isStreaming: false } : msg
-        ),
+        messages: get().messages.map((msg) => ({ ...msg, isStreaming: false })),
       });
     },
 

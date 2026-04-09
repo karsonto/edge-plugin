@@ -22,7 +22,14 @@ import {
 import { createMessage, generateMessageId, sendToBackground, truncateText } from '@/shared/utils';
 import { executeToolInContent } from './content-tool-bridge';
 
-const BROWSER_AGENT_SYSTEM_PROMPT = `你是浏览器自动化助手，负责读取页面并完成低风险网页操作。
+const BASE_AGENT_SYSTEM_PROMPT = `你是网页智能助手。
+要求：
+1. 基于已有对话、系统消息和可选的页面摘要回答问题
+2. 如果没有足够信息，明确说明缺失信息，不要假装已经读取页面或执行过操作
+3. 回答保持简洁、准确、自然，优先直接给出结论
+4. 如果工具不可用，就只基于现有上下文回答，不要虚构工具结果`;
+
+const BROWSER_TOOL_SYSTEM_PROMPT = `当前已启用浏览器页面工具。你可以读取页面并完成低风险网页操作。
 规则：
 1. 默认先读取后操作
 2. 优先使用 findByText/query 获取 elementId，再使用 elementId 操作
@@ -34,6 +41,12 @@ const BROWSER_AGENT_SYSTEM_PROMPT = `你是浏览器自动化助手，负责读�
 8. 不要重复读取整页，优先做局部检查
 9. 连续失败或无法确认页面状态时，停止并请求用户澄清
 10. 完成任务后，用简洁自然语言汇报结果`;
+
+function buildAgentSystemPrompt(enableTools: boolean) {
+  return enableTools
+    ? `${BASE_AGENT_SYSTEM_PROMPT}\n\n${BROWSER_TOOL_SYSTEM_PROMPT}`
+    : BASE_AGENT_SYSTEM_PROMPT;
+}
 
 function createOpenAICompatibleModel(config: AIConfig): Model<'openai-completions'> {
   const endpoint = getOpenAICompatibleEndpoint(config);
@@ -375,8 +388,14 @@ export function getBrowserAgentConfigKey(config: AIConfig) {
     customEndpoint: config.customEndpoint,
     topP: config.topP,
     repetitionPenalty: config.repetitionPenalty,
+    enableTools: Boolean(config.enableFunctionCalling),
     mode: 'browser-agent',
   });
+}
+
+interface CreateBrowserAgentOptions {
+  enableTools?: boolean;
+  getSelectedScreenshotTarget?: () => SelectedScreenshotTarget | null;
 }
 
 export function extractAssistantText(message: any): string {
@@ -534,15 +553,21 @@ export function createBrowserAgent(
   config: AIConfig,
   getInjectedContext: () => string | null,
   previousMessages?: any[],
-  getSelectedScreenshotTarget?: () => SelectedScreenshotTarget | null
+  options?: CreateBrowserAgentOptions
 ) {
   const model = createModelFromConfig(config);
+  const enableTools = options?.enableTools ?? Boolean(config.enableFunctionCalling);
   let continuitySummaryState: ContinuitySummaryState | null = null;
   return new Agent({
     initialState: {
-      systemPrompt: BROWSER_AGENT_SYSTEM_PROMPT,
+      systemPrompt: buildAgentSystemPrompt(enableTools),
       model,
-      tools: createBrowserAgentTools(modelSupportsImageInput(model), getSelectedScreenshotTarget),
+      tools: enableTools
+        ? createBrowserAgentTools(
+            modelSupportsImageInput(model),
+            options?.getSelectedScreenshotTarget
+          )
+        : [],
       messages: buildInitialAgentMessages(previousMessages || [], config, getInjectedContext) as any,
     },
     transformContext: async (messages) => {

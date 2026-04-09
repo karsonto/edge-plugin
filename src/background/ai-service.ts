@@ -2,7 +2,6 @@
  * AI 服务 - OpenAI API 集成
  */
 
-import { createParser, type EventSourceMessage } from 'eventsource-parser';
 import {
   buildOpenAICompatibleBody,
   buildOpenAICompatibleHeaders,
@@ -33,77 +32,6 @@ export class AIService {
 
   private buildBody(messages: ChatMessage[], options?: { stream?: boolean; tools?: any[]; tool_choice?: 'auto' | 'required' | 'none' }) {
     return buildOpenAICompatibleBody(this.config, messages, options);
-  }
-
-  /**
-   * 发送聊天请求（流式）
-   */
-  async *streamChat(messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<string> {
-    if (this.requireApiKey && !this.apiKey) {
-      throw new Error('API Key 未配置');
-    }
-
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: this.buildHeaders(),
-      body: JSON.stringify(this.buildBody(messages, { stream: true })),
-      signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(await extractOpenAICompatibleError(response));
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('无法读取响应流');
-    }
-
-    const decoder = new TextDecoder();
-    const chunks: string[] = [];
-    const parser = createParser({
-      onEvent(event: EventSourceMessage) {
-        if (!event.data || event.data === '[DONE]') {
-          return;
-        }
-
-        try {
-          const parsed = JSON.parse(event.data);
-          const delta = parsed.choices?.[0]?.delta;
-          const content = delta?.content;
-          if (typeof content === 'string' && content.length > 0) {
-            chunks.push(content);
-          }
-        } catch {
-          console.warn('Failed to parse SSE data:', event.data);
-        }
-      },
-    });
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        parser.feed(decoder.decode(value, { stream: true }));
-        while (chunks.length > 0) {
-          const nextChunk = chunks.shift();
-          if (nextChunk) {
-            yield nextChunk;
-          }
-        }
-      }
-
-      parser.feed(decoder.decode());
-      while (chunks.length > 0) {
-        const nextChunk = chunks.shift();
-        if (nextChunk) {
-          yield nextChunk;
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
   }
 
   /**
