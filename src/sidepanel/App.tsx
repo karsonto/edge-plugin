@@ -7,6 +7,8 @@ import { QuickActionsGrid } from './components/QuickActions/QuickActionsGrid';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useChat, useSettings, usePageContext } from './hooks';
 import { useFileContext } from './hooks/useFileContext';
+import { summarizePageContext } from '@/shared/ai';
+import type { PageContext } from '@/shared/types';
 import { replacePlaceholders } from '@/shared/utils/text-processor';
 import { SUPPORTED_EXTENSIONS } from '@/shared/utils/file-parser';
 import { APP_NAME } from '@/shared/brand';
@@ -182,6 +184,11 @@ function App() {
     }
   };
 
+  const buildPromptWithPageSummary = (question: string, context: PageContext) => {
+    const summary = summarizePageContext(context);
+    return `${summary}\n\n[用户问题]\n${question.trim()}`;
+  };
+
   // 处理发送消息
   const handleSend = () => {
     if (!inputValue.trim() || isLoading) return;
@@ -209,7 +216,18 @@ function App() {
       return;
     }
 
-    sendMessage(inputValue, aiConfigWithFC, combinedContext);
+    const prompt = includePageContext && combinedContext?.content
+      ? buildPromptWithPageSummary(inputValue, combinedContext)
+      : inputValue;
+
+    sendMessage(
+      prompt,
+      aiConfigWithFC,
+      combinedContext,
+      includePageContext && combinedContext?.content
+        ? { injectPageContextAsSystem: false }
+        : undefined
+    );
     closeIncludePageContextAfterSend(combinedContext);
     setInputValue('');
   };

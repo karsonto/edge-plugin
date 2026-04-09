@@ -35,7 +35,12 @@ interface ChatStore {
   error: string | null;
   selectedScreenshotTarget: SelectedScreenshotTarget | null;
 
-  sendMessage: (content: string, settings: AIConfig, pageContext?: PageContext) => Promise<void>;
+  sendMessage: (
+    content: string,
+    settings: AIConfig,
+    pageContext?: PageContext,
+    options?: { injectPageContextAsSystem?: boolean }
+  ) => Promise<void>;
   clearMessages: () => void;
   addMessage: (message: Message) => void;
   stop: () => void;
@@ -327,10 +332,12 @@ export const useChat = create<ChatStore>((set, get) => {
   const handleAgentMode = async (
     userMessage: Message,
     settings: AIConfig,
-    pageContext?: PageContext
+    pageContext?: PageContext,
+    options?: { injectPageContextAsSystem?: boolean }
   ) => {
     shouldStop = false;
-    injectedPageContext = pageContext
+    const shouldInjectPageContextAsSystem = options?.injectPageContextAsSystem ?? true;
+    injectedPageContext = shouldInjectPageContextAsSystem && pageContext
       ? getOrCreatePageSummary(pageSummaryCache, pageContext).summary
       : null;
 
@@ -352,7 +359,12 @@ export const useChat = create<ChatStore>((set, get) => {
     error: null,
     selectedScreenshotTarget: null,
 
-    sendMessage: async (content: string, settings: AIConfig, pageContext?: PageContext) => {
+    sendMessage: async (
+      content: string,
+      settings: AIConfig,
+      pageContext?: PageContext,
+      options?: { injectPageContextAsSystem?: boolean }
+    ) => {
       if (!content.trim()) return;
 
       const userMessage: Message = {
@@ -376,7 +388,8 @@ export const useChat = create<ChatStore>((set, get) => {
         await handleAgentMode(
           userMessage,
           settings,
-          pageContext
+          pageContext,
+          options
         );
       } catch (error) {
         if (shouldStop) {
