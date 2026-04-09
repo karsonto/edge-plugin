@@ -12,14 +12,14 @@ import type {
   WaitForResultData,
 } from '@/shared/types';
 import {
-  buildStagedMemory,
+  budgetCompactMessages,
   getOpenAICompatibleEndpoint,
-  summarizeToolLogs,
   toOpenAICompatibleBaseUrl,
+  type ContinuitySummaryState,
   type MemoryEntry,
   type ToolLogSummaryEntry,
 } from '@/shared/ai';
-import { truncateText } from '@/shared/utils';
+import { createMessage, generateMessageId, sendToBackground, truncateText } from '@/shared/utils';
 import { executeToolInContent } from './content-tool-bridge';
 
 const BROWSER_AGENT_SYSTEM_PROMPT = `你是浏览器自动化助手，负责读取页面并完成低风险网页操作。
@@ -412,39 +412,122 @@ function buildAgentToolEntries(messages: any[]): ToolLogSummaryEntry[] {
     .filter((entry) => entry.summary.trim());
 }
 
-function pruneMessages(messages: any[]) {
-  const memoryEntries = buildAgentMemoryEntries(messages);
-  const stagedMemory = buildStagedMemory(memoryEntries);
-  const toolSummary = summarizeToolLogs(buildAgentToolEntries(messages));
+function toAgentChatMessages(messages: any[]) {
+  return messages.map((message) => ({
+    role: message.role,
+    content: extractMessageText(message),
+    timestamp: message.timestamp,
+    tool_calls: message.tool_calls,
+    tool_call_id: message.tool_call_id,
+    name: message.name,
+  }));
+}
 
-  const pruned = messages.length > 8 ? messages.slice(-8) : messages;
-  const syntheticMessages: any[] = [];
+function buildInitialAgentMessages(
+  messages: any[],
+  config: AIConfig,
+  getInjectedContext: () => string | null
+) {
+  const baseMessages = toAgentChatMessages(messages);
+  const latestToolMessage = [...baseMessages].reverse().find((message) => message.role === 'tool');
+  const pageSummary = getInjectedContext()?.trim();
 
-  if (stagedMemory.longTermSummary) {
-    syntheticMessages.push({
-      role: 'user',
-      content: stagedMemory.longTermSummary,
-      timestamp: Date.now(),
-    });
+  const firstPass = budgetCompactMessages(baseMessages, config, {
+    buildMemoryEntries: (chatMessages) => buildAgentMemoryEntries(chatMessages),
+    buildToolEntries: (chatMessages) => buildAgentToolEntries(chatMessages),
+    continuity: null,
+    pinnedMemory: {
+      latestUserInput: [...baseMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
+      latestExecutionOutcome: latestToolMessage?.content || undefined,
+    },
+  });
+
+  return pageSummary
+    ? [
+        {
+          role: 'system' as const,
+          content: pageSummary,
+          timestamp: Date.now(),
+        },
+        ...firstPass.messages,
+      ]
+    : firstPass.messages;
+}
+
+async function pruneMessages(
+  messages: any[],
+  config: AIConfig,
+  getInjectedContext: () => string | null,
+  continuitySummaryState: ContinuitySummaryState | null
+) {
+  const baseMessages = toAgentChatMessages(messages);
+  const latestToolMessage = [...baseMessages].reverse().find((message) => message.role === 'tool');
+  const pageSummary = getInjectedContext()?.trim();
+
+  const firstPass = budgetCompactMessages(baseMessages, config, {
+    buildMemoryEntries: (chatMessages) => buildAgentMemoryEntries(chatMessages),
+    buildToolEntries: (chatMessages) => buildAgentToolEntries(chatMessages),
+    continuity: continuitySummaryState,
+    pinnedMemory: {
+      latestUserInput: [...baseMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
+      latestExecutionOutcome: latestToolMessage?.content || undefined,
+    },
+  });
+
+  if (!firstPass.needsContinuitySummary) {
+    const withPageSummary = pageSummary
+      ? [
+          {
+            role: 'system' as const,
+            content: pageSummary,
+            timestamp: Date.now(),
+          },
+          ...firstPass.messages,
+        ]
+      : firstPass.messages;
+    return { messages: withPageSummary, continuity: continuitySummaryState };
   }
 
-  if (stagedMemory.stageSummary) {
-    syntheticMessages.push({
-      role: 'user',
-      content: stagedMemory.stageSummary,
-      timestamp: Date.now(),
-    });
-  }
+  const continuityResponse: any = await sendToBackground(
+    createMessage('GENERATE_CONTINUITY_SUMMARY', {
+      messages: baseMessages,
+      settings: config,
+      pageSummary,
+    })
+  );
 
-  if (toolSummary) {
-    syntheticMessages.push({
-      role: 'user',
-      content: toolSummary,
-      timestamp: Date.now(),
-    });
-  }
+  const summary = continuityResponse?.payload?.summary?.trim();
+  const nextContinuity = summary
+    ? {
+        summary,
+        coveredMessageCount: baseMessages.length,
+        summaryId: generateMessageId(),
+        timestamp: Date.now(),
+      }
+    : continuitySummaryState;
 
-  return [...syntheticMessages, ...pruned];
+  const secondPass = budgetCompactMessages(baseMessages, config, {
+    buildMemoryEntries: (chatMessages) => buildAgentMemoryEntries(chatMessages),
+    buildToolEntries: (chatMessages) => buildAgentToolEntries(chatMessages),
+    continuity: nextContinuity,
+    pinnedMemory: {
+      latestUserInput: [...baseMessages].reverse().find((message) => message.role === 'user')?.content || undefined,
+      latestExecutionOutcome: latestToolMessage?.content || undefined,
+    },
+  });
+
+  const withPageSummary = pageSummary
+    ? [
+        {
+          role: 'system' as const,
+          content: pageSummary,
+          timestamp: Date.now(),
+        },
+        ...secondPass.messages,
+      ]
+    : secondPass.messages;
+
+  return { messages: withPageSummary, continuity: nextContinuity };
 }
 
 export function createBrowserAgent(
@@ -454,28 +537,18 @@ export function createBrowserAgent(
   getSelectedScreenshotTarget?: () => SelectedScreenshotTarget | null
 ) {
   const model = createModelFromConfig(config);
+  let continuitySummaryState: ContinuitySummaryState | null = null;
   return new Agent({
     initialState: {
       systemPrompt: BROWSER_AGENT_SYSTEM_PROMPT,
       model,
       tools: createBrowserAgentTools(modelSupportsImageInput(model), getSelectedScreenshotTarget),
-      messages: pruneMessages(previousMessages || []),
+      messages: buildInitialAgentMessages(previousMessages || [], config, getInjectedContext) as any,
     },
     transformContext: async (messages) => {
-      const pruned = pruneMessages(messages);
-      const contextText = getInjectedContext();
-      if (!contextText?.trim()) {
-        return pruned;
-      }
-
-      return [
-        {
-          role: 'user' as const,
-          content: `当前页面抓取内容（仅供当前轮参考，优先局部读取，不要大段复述）：\n\n${truncateText(contextText.trim())}`,
-          timestamp: Date.now(),
-        },
-        ...pruned,
-      ];
+      const result = await pruneMessages(messages, config, getInjectedContext, continuitySummaryState);
+      continuitySummaryState = result.continuity;
+      return result.messages as any;
     },
     toolExecution: 'sequential',
     getApiKey: () => config.apiKey || undefined,

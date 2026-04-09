@@ -10,6 +10,7 @@ export type MessageType =
   | 'GET_PAGE_CONTEXT'        // 获取页面内容
   | 'PAGE_CONTEXT_RESPONSE'   // 页面内容响应
   | 'SEND_TO_AI'              // 发送消息到 AI
+  | 'GENERATE_CONTINUITY_SUMMARY' // 生成连续性摘要
   | 'AI_RESPONSE_START'       // AI 响应开始
   | 'AI_RESPONSE_CHUNK'       // AI 响应片段（流式）
   | 'AI_RESPONSE_END'         // AI 响应结束
@@ -65,6 +66,15 @@ export interface SendToAIMessage extends BaseMessage {
   payload: {
     messages: ChatMessage[];
     settings: AIConfig;
+  };
+}
+
+export interface GenerateContinuitySummaryMessage extends BaseMessage {
+  type: 'GENERATE_CONTINUITY_SUMMARY';
+  payload: {
+    messages: ChatMessage[];
+    settings: AIConfig;
+    pageSummary?: string;
   };
 }
 
@@ -176,6 +186,7 @@ export type Message =
   | GetPageContextMessage
   | PageContextResponseMessage
   | SendToAIMessage
+  | GenerateContinuitySummaryMessage
   | AIResponseStartMessage
   | AIResponseChunkMessage
   | AIResponseEndMessage

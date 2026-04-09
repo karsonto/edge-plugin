@@ -21,6 +21,16 @@ export const MESSAGE_TIMEOUT = 30000;
 export const MAX_CONTENT_LENGTH = 50000;
 
 /**
+ * 上下文压缩相关默认值
+ */
+export const DEFAULT_CONTEXT_WINDOW = 128000;
+export const DEFAULT_INPUT_TOKEN_THRESHOLD = 100000;
+export const DEFAULT_TOKEN_SAFETY_MARGIN = 4000;
+export const DEFAULT_RECENT_RAW_MESSAGE_COUNT = 4;
+export const DEFAULT_RECENT_TOOL_RESULT_COUNT = 1;
+export const CONTINUITY_SUMMARY_MAX_TOKENS = 1200;
+
+/**
  * OpenAI-compatible Chat Completions 默认端点
  */
 export const API_ENDPOINTS = {

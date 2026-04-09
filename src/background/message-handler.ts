@@ -8,6 +8,7 @@ import { storageManager } from './storage-manager';
 import { createMessage, generateMessageId } from '@/shared/utils/message-bridge';
 import { parsePDFBuffer } from '@/shared/utils/file-parser';
 import { captureVisibleTab } from './screenshot-service';
+import { buildContinuitySummaryPrompt } from '@/shared/ai';
 
 /**
  * 处理来自 content script 或 sidepanel 的消息
@@ -29,6 +30,10 @@ export async function handleMessage(
 
       case 'SEND_TO_AI':
         await handleSendToAI(message, sendResponse);
+        return true;
+
+      case 'GENERATE_CONTINUITY_SUMMARY':
+        await handleGenerateContinuitySummary(message, sendResponse);
         return true;
 
       case 'ABORT_AI':
@@ -224,6 +229,44 @@ async function handleSendToAI(
     });
   } finally {
     activeAIRequests.delete(messageId);
+  }
+}
+
+async function handleGenerateContinuitySummary(
+  message: any,
+  sendResponse: (response?: any) => void
+) {
+  const { messages, settings, pageSummary } = message.payload;
+  const aiService = new AIService(settings);
+  const prompt = buildContinuitySummaryPrompt(messages, pageSummary);
+
+  try {
+    const result = await aiService.chat([
+      {
+        role: 'system',
+        content: '你负责压缩多轮对话，输出结构化 continuity summary 供后续上下文续接使用。',
+        timestamp: Date.now(),
+      },
+      {
+        role: 'user',
+        content: prompt,
+        timestamp: Date.now(),
+      },
+    ]);
+
+    sendResponse({
+      success: true,
+      payload: {
+        summary: result.content || '',
+      },
+    });
+  } catch (error) {
+    sendResponse({
+      type: 'ERROR',
+      payload: {
+        error: error instanceof Error ? error.message : '生成连续性摘要失败',
+      },
+    });
   }
 }
 

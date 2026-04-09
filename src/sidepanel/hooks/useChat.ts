@@ -2,13 +2,12 @@ import { create } from 'zustand';
 import { Agent, type AgentEvent } from '@mariozechner/pi-agent-core';
 import type { AIConfig, ChatMessage, PageContext, SelectedScreenshotTarget } from '@/shared/types';
 import {
-  buildStagedMemory,
+  budgetCompactMessages,
+  type ContinuitySummaryState,
   getOrCreatePageSummary,
-  summarizeToolLogs,
-  type MemoryEntry,
   type ToolLogSummaryEntry,
 } from '@/shared/ai';
-import { sendToBackground, sendToContentScript, createMessage, onMessage, generateMessageId, truncateText } from '@/shared/utils';
+import { sendToBackground, sendToContentScript, createMessage, onMessage, generateMessageId } from '@/shared/utils';
 import {
   createBrowserAgent,
   extractAssistantText,
@@ -62,6 +61,7 @@ export const useChat = create<ChatStore>((set, get) => {
   let currentAgentAssistantUiId: string | null = null;
   let currentToolStatusMessageId: string | null = null;
   const pageSummaryCache = new Map<string, { cacheKey: string; summary: string }>();
+  let continuitySummaryState: ContinuitySummaryState | null = null;
 
   const PAGE_UNDERSTANDING_PATTERNS = [
     /总结/,
@@ -366,15 +366,6 @@ export const useChat = create<ChatStore>((set, get) => {
     return browserAgent;
   };
 
-  const buildMemoryEntries = (messages: ChatHistoryMessage[]): MemoryEntry[] =>
-    messages
-      .filter((msg) => msg.kind !== 'tool_log' && msg.content.trim())
-      .map((msg) => ({
-        role: msg.role,
-        text: msg.content,
-        timestamp: msg.timestamp,
-      }));
-
   const buildToolLogEntries = (messages: ChatHistoryMessage[]): ToolLogSummaryEntry[] =>
     messages
       .filter((msg): msg is ChatHistoryMessage & { toolLog: NonNullable<Message['toolLog']> } => Boolean(msg.toolLog))
@@ -386,59 +377,85 @@ export const useChat = create<ChatStore>((set, get) => {
         resultText: msg.toolLog.resultText,
       }));
 
-  const buildStagedChatMessages = (
+  const buildCompressedChatMessages = async (
     messages: ChatHistoryMessage[],
+    settings: AIConfig,
     pageContext?: PageContext
-  ): ChatMessage[] => {
-    const memoryEntries = buildMemoryEntries(messages);
-    const stagedMemory = buildStagedMemory(memoryEntries);
-    const toolSummary = summarizeToolLogs(buildToolLogEntries(messages));
-    const recentEntries = memoryEntries.slice(stagedMemory.recentStartIndex);
+  ): Promise<ChatMessage[]> => {
+    const baseMessages: ChatMessage[] = messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+    }));
 
-    const chatMessages: ChatMessage[] = [];
+    const latestExecutionOutcome = [...messages]
+      .reverse()
+      .find((message) => message.kind === 'tool_log' && message.toolLog?.resultText?.trim())
+      ?.toolLog?.resultText;
 
-    if (pageContext) {
-      const pageSummary = getOrCreatePageSummary(pageSummaryCache, pageContext);
-      chatMessages.push({
-        role: 'system',
-        content: `${pageSummary.summary}\n\n请优先依据摘要与近期消息作答，只有在摘要不足时再依赖后续原始内容。`,
-        timestamp: Date.now(),
-      });
-    }
-
-    if (stagedMemory.longTermSummary) {
-      chatMessages.push({
-        role: 'system',
-        content: stagedMemory.longTermSummary,
-        timestamp: Date.now(),
-      });
-    }
-
-    if (stagedMemory.stageSummary) {
-      chatMessages.push({
-        role: 'system',
-        content: stagedMemory.stageSummary,
-        timestamp: Date.now(),
-      });
-    }
-
-    if (toolSummary) {
-      chatMessages.push({
-        role: 'system',
-        content: toolSummary,
-        timestamp: Date.now(),
-      });
-    }
-
-    recentEntries.forEach((entry) => {
-      chatMessages.push({
-        role: entry.role,
-        content: truncateText(entry.text),
-        timestamp: entry.timestamp,
-      });
+    const firstPass = budgetCompactMessages(baseMessages, settings, {
+      pageContext,
+      pageSummaryCache,
+      buildMemoryEntries: (chatMessages) =>
+        chatMessages
+          .filter((msg) => msg.role !== 'system' && (msg.content || '').trim())
+          .map((msg) => ({
+            role: msg.role,
+            text: msg.content || '',
+            timestamp: msg.timestamp,
+          })),
+      buildToolEntries: () => buildToolLogEntries(messages),
+      continuity: continuitySummaryState,
+      pinnedMemory: {
+        latestUserInput: messages[messages.length - 1]?.role === 'user'
+          ? messages[messages.length - 1]?.content
+          : undefined,
+        latestExecutionOutcome,
+      },
     });
 
-    return chatMessages;
+    if (!firstPass.needsContinuitySummary) {
+      return firstPass.messages;
+    }
+
+    const continuityResponse: any = await sendToBackground(
+      createMessage('GENERATE_CONTINUITY_SUMMARY', {
+        messages: baseMessages,
+        settings,
+        pageSummary: firstPass.pageSummary,
+      })
+    );
+
+    const summary = continuityResponse?.payload?.summary?.trim();
+    if (summary) {
+      continuitySummaryState = {
+        summary,
+        coveredMessageCount: baseMessages.length,
+        summaryId: generateMessageId(),
+        timestamp: Date.now(),
+      };
+    }
+
+    return budgetCompactMessages(baseMessages, settings, {
+      pageContext,
+      pageSummaryCache,
+      buildMemoryEntries: (chatMessages) =>
+        chatMessages
+          .filter((msg) => msg.role !== 'system' && (msg.content || '').trim())
+          .map((msg) => ({
+            role: msg.role,
+            text: msg.content || '',
+            timestamp: msg.timestamp,
+          })),
+      buildToolEntries: () => buildToolLogEntries(messages),
+      continuity: continuitySummaryState,
+      pinnedMemory: {
+        latestUserInput: messages[messages.length - 1]?.role === 'user'
+          ? messages[messages.length - 1]?.content
+          : undefined,
+        latestExecutionOutcome,
+      },
+    }).messages;
   };
 
   onMessage((message) => {
@@ -541,7 +558,7 @@ export const useChat = create<ChatStore>((set, get) => {
   };
 
   const handleStreamMode = async (
-    userMessage: Message,
+    _userMessage: Message,
     settings: AIConfig,
     pageContext?: PageContext
   ) => {
@@ -549,7 +566,7 @@ export const useChat = create<ChatStore>((set, get) => {
     currentAbortController = new AbortController();
 
     try {
-      const chatMessages = buildStagedChatMessages(get().messages, pageContext);
+      const chatMessages = await buildCompressedChatMessages(get().messages, settings, pageContext);
 
       const response: any = await sendToBackground(
         createMessage('SEND_TO_AI', {
@@ -690,6 +707,7 @@ export const useChat = create<ChatStore>((set, get) => {
       browserAgent?.reset();
       currentAgentAssistantUiId = null;
       currentToolStatusMessageId = null;
+      continuitySummaryState = null;
       set({ messages: [], error: null, lastPageUrl: null, selectedScreenshotTarget: null });
     },
 
