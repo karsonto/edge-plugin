@@ -1,5 +1,5 @@
 import type { ChatMessage, PageContext } from '@/shared/types';
-import { cleanText, truncateText } from '@/shared/utils/text-processor';
+import { cleanText, normalizeStructuredText, truncateText } from '@/shared/utils/text-processor';
 
 export interface ToolLogSummaryEntry {
   toolName: string;
@@ -110,9 +110,17 @@ export function getPageSummaryCacheKey(pageContext: PageContext): string {
   return `${pageContext.url}::${hashText(pageContext.content)}`;
 }
 
+function truncateStructuredText(text: string, maxLength: number) {
+  const normalized = normalizeStructuredText(text);
+  if (!normalized) {
+    return '';
+  }
+  return truncateText(normalized, maxLength);
+}
+
 export function summarizePageContext(pageContext: PageContext): string {
-  const selectedText = pageContext.selectedText?.trim();
-  const firstParagraph = truncateText(cleanText(pageContext.content), 1200);
+  const selectedText = truncateStructuredText(pageContext.selectedText || '', 240);
+  const firstParagraph = truncateStructuredText(pageContext.content, 1200);
   const metadataLines = [
     pageContext.metadata?.author ? `作者：${pageContext.metadata.author}` : '',
     pageContext.metadata?.publishDate ? `发布日期：${pageContext.metadata.publishDate}` : '',
@@ -127,10 +135,12 @@ export function summarizePageContext(pageContext: PageContext): string {
   ];
 
   if (selectedText) {
-    lines.push(`选中文本：${truncateText(cleanText(selectedText), 240)}`);
+    lines.push('选中文本：');
+    lines.push(selectedText);
   }
 
-  lines.push(`内容摘录：${firstParagraph}`);
+  lines.push('内容摘录：');
+  lines.push(firstParagraph || '暂无可用内容');
   return lines.join('\n');
 }
 

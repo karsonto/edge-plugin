@@ -184,9 +184,39 @@ function App() {
     }
   };
 
-  const buildPromptWithPageSummary = (question: string, context: PageContext) => {
-    const summary = summarizePageContext(context);
-    return `${summary}\n\n[用户问题]\n${question.trim()}`;
+  const buildContextPayload = ({
+    pageContext: currentPageContext,
+    fileContent,
+    includePageContextInPrompt,
+  }: {
+    pageContext?: PageContext | null;
+    fileContent?: string;
+    includePageContextInPrompt: boolean;
+  }) => {
+    const sections: string[] = [];
+
+    if (includePageContextInPrompt && currentPageContext?.content?.trim()) {
+      sections.push(summarizePageContext(currentPageContext));
+    }
+
+    if (fileContent?.trim()) {
+      sections.push(`[附件全文]\n${fileContent.trim()}`);
+    }
+
+    return sections.join('\n\n');
+  };
+
+  const buildPromptWithContext = ({
+    basePrompt,
+    contextPayload,
+    bodyLabel,
+  }: {
+    basePrompt: string;
+    contextPayload?: string;
+    bodyLabel: string;
+  }) => {
+    const sections = [contextPayload?.trim(), `[${bodyLabel}]\n${basePrompt.trim()}`].filter(Boolean);
+    return sections.join('\n\n');
   };
 
   // 处理发送消息
@@ -207,6 +237,7 @@ function App() {
       return;
     }
 
+    const fileContent = getFileContent();
     // 传递完整的 aiConfig（包含 enableFunctionCalling）
     const aiConfigWithFC = { ...ai, enableFunctionCalling };
     // 构建合并后的上下文（网页 + 文件）
@@ -216,15 +247,23 @@ function App() {
       return;
     }
 
-    const prompt = includePageContext && combinedContext?.content
-      ? buildPromptWithPageSummary(inputValue, combinedContext)
-      : inputValue;
+    const contextPayload = buildContextPayload({
+      pageContext,
+      fileContent,
+      includePageContextInPrompt: includePageContext,
+    });
+
+    const prompt = buildPromptWithContext({
+      basePrompt: inputValue,
+      contextPayload,
+      bodyLabel: '用户问题',
+    });
 
     sendMessage(
       prompt,
       aiConfigWithFC,
       combinedContext,
-      includePageContext && combinedContext?.content
+      contextPayload
         ? { injectPageContextAsSystem: false }
         : undefined
     );
@@ -249,31 +288,41 @@ function App() {
     }
 
     const aiConfigWithFC = { ...ai, enableFunctionCalling };
-
-    if (includePageContext) {
-      const combinedContext = buildCombinedContext();
-      if (!combinedContext?.content) {
-        alert('无法获取内容，请刷新页面或上传文件后重试');
-        return;
-      }
-
-      const prompt = replacePlaceholders(action.prompt, {
-        context: combinedContext.content,
-      });
-
-      setInputValue('');
-      sendMessage(prompt, aiConfigWithFC, combinedContext);
-      closeIncludePageContextAfterSend(combinedContext);
+    const fileContent = getFileContent();
+    const combinedContext = buildCombinedContext();
+    if (includePageContext && !combinedContext?.content) {
+      alert('无法获取内容，请刷新页面或上传文件后重试');
       return;
     }
 
-    const prompt = replacePlaceholders(action.prompt, {
-      context: '',
+    const contextPayload = buildContextPayload({
+      pageContext,
+      fileContent,
+      includePageContextInPrompt: includePageContext,
+    });
+    const templateHasContextPlaceholder = action.prompt.includes('{context}');
+
+    const basePrompt = replacePlaceholders(action.prompt, {
+      context: contextPayload,
+    });
+
+    const prompt = buildPromptWithContext({
+      basePrompt,
+      contextPayload: templateHasContextPlaceholder ? '' : contextPayload,
+      bodyLabel: '快捷操作',
     });
 
     // 不预填输入框：快捷操作直接发送，不占用用户输入区
     setInputValue('');
-    sendMessage(prompt, aiConfigWithFC, undefined);
+    sendMessage(
+      prompt,
+      aiConfigWithFC,
+      combinedContext,
+      contextPayload
+        ? { injectPageContextAsSystem: false }
+        : undefined
+    );
+    closeIncludePageContextAfterSend(combinedContext);
   };
 
   // 处理刷新页面内容

@@ -80,7 +80,7 @@ export function ContextPreview({ context, isLoading }: ContextPreviewProps) {
       </h3>
 
       {/* Content Preview */}
-      <p className="text-xs text-gray-600 leading-relaxed mb-3">
+      <p className="text-xs text-gray-600 leading-relaxed mb-3 whitespace-pre-wrap break-words">
         {displayContent}
       </p>
 

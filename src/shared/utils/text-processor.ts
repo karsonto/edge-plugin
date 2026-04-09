@@ -24,6 +24,37 @@ export function cleanText(text: string): string {
 }
 
 /**
+ * 规范化行内空白，但保留换行结构
+ */
+export function normalizeInlineWhitespace(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[^\S\n]+/g, ' ').trim())
+    .filter((line, index, lines) => line.length > 0 || lines[index - 1]?.length > 0)
+    .join('\n');
+}
+
+/**
+ * 规范化保结构文本，折叠多余空行但不压平段落
+ */
+export function normalizeStructuredText(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function normalizeCodeBlockText(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/\t/g, '  ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
  * 截断文本
  */
 export function truncateText(
@@ -146,12 +177,58 @@ export function extractAllVisibleText(doc: Document = document): string {
   // 表单控件标签
   const FORM_INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
-  const texts: string[] = [];
+  type MarkdownBlockType = 'heading' | 'list_item' | 'blockquote' | 'code' | 'paragraph';
+
+  interface MarkdownBlock {
+    element: Element | null;
+    type: MarkdownBlockType;
+    level?: number;
+    segments: string[];
+  }
+
+  const blocks: MarkdownBlock[] = [];
   
   // 用于防止循环引用（虽然理论上不太可能，但加一层保护）
   const processedDocs = new WeakSet<Document | ShadowRoot>();
   // 记录已处理的表单元素，避免重复
   const processedFormElements = new WeakSet<Element>();
+  const blockIndexMap = new WeakMap<Element, number>();
+
+  const BLOCK_TAGS = new Set([
+    'ADDRESS',
+    'ARTICLE',
+    'ASIDE',
+    'BLOCKQUOTE',
+    'DD',
+    'DIV',
+    'DL',
+    'DT',
+    'FIELDSET',
+    'FIGCAPTION',
+    'FIGURE',
+    'FOOTER',
+    'FORM',
+    'H1',
+    'H2',
+    'H3',
+    'H4',
+    'H5',
+    'H6',
+    'HEADER',
+    'HR',
+    'LI',
+    'MAIN',
+    'NAV',
+    'OL',
+    'P',
+    'PRE',
+    'SECTION',
+    'TABLE',
+    'TD',
+    'TH',
+    'TR',
+    'UL',
+  ]);
 
   const isVisibleElement = (el: Element): boolean => {
     const htmlEl = el as HTMLElement;
@@ -165,6 +242,139 @@ export function extractAllVisibleText(doc: Document = document): string {
     if (style.visibility === 'hidden') return false;
     if (style.opacity === '0') return false;
     return true;
+  };
+
+  const isBlockLikeElement = (el: Element): boolean => {
+    if (BLOCK_TAGS.has(el.tagName)) {
+      return true;
+    }
+
+    const view = (el as HTMLElement).ownerDocument.defaultView;
+    const style = view?.getComputedStyle(el as HTMLElement);
+    const display = style?.display;
+    return Boolean(display && !['inline', 'contents', 'none'].includes(display));
+  };
+
+  const getNearestMarkdownBlock = (start: Element) => {
+    const ancestors: Element[] = [];
+    let current: Element | null = start;
+    while (current) {
+      ancestors.push(current);
+      current = current.parentElement;
+    }
+
+    for (const el of ancestors) {
+      if (!isVisibleElement(el) || EXCLUDE_TAGS.has(el.tagName)) {
+        continue;
+      }
+
+      if (el.tagName === 'PRE') {
+        return { element: el, type: 'code' as const };
+      }
+
+      if (/^H[1-6]$/.test(el.tagName)) {
+        return {
+          element: el,
+          type: 'heading' as const,
+          level: Number(el.tagName.slice(1)),
+        };
+      }
+
+      if (el.tagName === 'LI') {
+        return { element: el, type: 'list_item' as const };
+      }
+
+      if (el.tagName === 'BLOCKQUOTE') {
+        return { element: el, type: 'blockquote' as const };
+      }
+    }
+
+    for (const el of ancestors) {
+      if (!isVisibleElement(el) || EXCLUDE_TAGS.has(el.tagName)) {
+        continue;
+      }
+
+      if (isBlockLikeElement(el)) {
+        return { element: el, type: 'paragraph' as const };
+      }
+    }
+
+    return { element: start, type: 'paragraph' as const };
+  };
+
+  const ensureBlock = (
+    descriptor: { element: Element | null; type: MarkdownBlockType; level?: number }
+  ) => {
+    if (descriptor.element) {
+      const existingIndex = blockIndexMap.get(descriptor.element);
+      if (existingIndex !== undefined) {
+        return blocks[existingIndex];
+      }
+    }
+
+    const block: MarkdownBlock = {
+      element: descriptor.element,
+      type: descriptor.type,
+      level: descriptor.level,
+      segments: [],
+    };
+    blocks.push(block);
+    if (descriptor.element) {
+      blockIndexMap.set(descriptor.element, blocks.length - 1);
+    }
+    return block;
+  };
+
+  const pushTextSegment = (block: MarkdownBlock, rawText: string) => {
+    const text = block.type === 'code'
+      ? normalizeCodeBlockText(rawText)
+      : normalizeInlineWhitespace(rawText);
+    if (!text) {
+      return;
+    }
+    block.segments.push(text);
+  };
+
+  const pushStandaloneBlock = (type: MarkdownBlockType, rawText: string, level?: number) => {
+    const block: MarkdownBlock = {
+      element: null,
+      type,
+      level,
+      segments: [],
+    };
+    blocks.push(block);
+    pushTextSegment(block, rawText);
+  };
+
+  const renderBlock = (block: MarkdownBlock) => {
+    if (!block.segments.length) {
+      return '';
+    }
+
+    if (block.type === 'code') {
+      const code = normalizeCodeBlockText(block.segments.join('\n'));
+      return code ? `\`\`\`\n${code}\n\`\`\`` : '';
+    }
+
+    const content = normalizeInlineWhitespace(block.segments.join(block.type === 'paragraph' ? ' ' : '\n'));
+    if (!content) {
+      return '';
+    }
+
+    switch (block.type) {
+      case 'heading':
+        return `${'#'.repeat(block.level || 1)} ${content}`;
+      case 'list_item':
+        return `- ${content}`;
+      case 'blockquote':
+        return content
+          .split('\n')
+          .map((line) => (line ? `> ${line}` : '>'))
+          .join('\n');
+      case 'paragraph':
+      default:
+        return content;
+    }
   };
 
   /**
@@ -233,7 +443,7 @@ export function extractAllVisibleText(doc: Document = document): string {
       if (type === 'checkbox' || type === 'radio') {
         if (input.checked) {
           const valueText = input.value || (type === 'checkbox' ? '已勾选' : '已选择');
-          return label ? `[${label}: ${valueText}]` : `[${valueText}]`;
+          return label ? `${label}：${valueText}` : valueText;
         }
         return null; // 未选中的不输出
       }
@@ -241,10 +451,10 @@ export function extractAllVisibleText(doc: Document = document): string {
       // 普通输入框
       const value = input.value?.trim();
       if (value) {
-        return label ? `[${label}: ${value}]` : `[输入值: ${value}]`;
+        return label ? `${label}：${value}` : `输入值：${value}`;
       } else if (input.placeholder) {
         // 如果没有值但有 placeholder，也记录一下字段存在
-        return label ? `[${label}: (空)]` : null;
+        return label ? `${label}：(空)` : null;
       }
       return null;
     }
@@ -255,7 +465,7 @@ export function extractAllVisibleText(doc: Document = document): string {
       if (value) {
         // 多行文本截断显示
         const truncated = value.length > 200 ? value.slice(0, 200) + '...' : value;
-        return label ? `[${label}: ${truncated}]` : `[文本内容: ${truncated}]`;
+        return label ? `${label}：${truncated}` : `文本内容：${truncated}`;
       }
       return null;
     }
@@ -266,7 +476,7 @@ export function extractAllVisibleText(doc: Document = document): string {
       if (selectedOption) {
         const value = selectedOption.text?.trim() || selectedOption.value;
         if (value) {
-          return label ? `[${label}: ${value}]` : `[选择: ${value}]`;
+          return label ? `${label}：${value}` : `选择：${value}`;
         }
       }
       return null;
@@ -299,8 +509,11 @@ export function extractAllVisibleText(doc: Document = document): string {
 
     let n: Node | null = treeWalker.nextNode();
     while (n) {
-      const t = (n.nodeValue || '').trim();
-      if (t) texts.push(t);
+      const parent = (n as Text).parentElement;
+      if (parent) {
+        const block = ensureBlock(getNearestMarkdownBlock(parent));
+        pushTextSegment(block, n.nodeValue || '');
+      }
       n = treeWalker.nextNode();
     }
 
@@ -338,7 +551,7 @@ export function extractAllVisibleText(doc: Document = document): string {
       if (FORM_INPUT_TAGS.has(el.tagName)) {
         const formValue = extractFormFieldValue(el, root);
         if (formValue) {
-          texts.push(formValue);
+          pushStandaloneBlock('list_item', formValue);
         }
       }
       
@@ -349,5 +562,10 @@ export function extractAllVisibleText(doc: Document = document): string {
   // 从主文档开始递归抓取
   walkRoot(doc);
 
-  return cleanText(texts.join('\n'));
+  const rendered = blocks
+    .map(renderBlock)
+    .filter(Boolean)
+    .join('\n\n');
+
+  return normalizeStructuredText(rendered);
 }
