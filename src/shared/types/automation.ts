@@ -1,6 +1,11 @@
 export type ToolName =
   | 'getPageInfo'
   | 'getVisibleText'
+  | 'readAriaTree'
+  | 'resolveAriaRef'
+  | 'ariaInspect'
+  | 'ariaInteract'
+  | 'waitForAria'
   | 'query'
   | 'findByText'
   | 'getValue'
@@ -12,6 +17,9 @@ export type ToolName =
 export type SelectorType = 'css' | 'xpath';
 
 export type InteractAction = 'click' | 'type' | 'press' | 'selectOption';
+export type AriaTreeFilter = 'all' | 'interactive';
+export type AriaCheckedState = boolean | 'mixed';
+export type AriaPressedState = boolean | 'mixed';
 
 export type WaitForState = 'appear' | 'disappear' | 'stable';
 
@@ -47,6 +55,102 @@ export interface ElementSummary {
   inputType?: string;
   selectorHint?: string;
   rect?: { x: number; y: number; width: number; height: number };
+}
+
+export interface AriaNodeState {
+  checked?: AriaCheckedState;
+  disabled?: boolean;
+  expanded?: boolean;
+  level?: number;
+  pressed?: AriaPressedState;
+  selected?: boolean;
+  readonly?: boolean;
+  required?: boolean;
+}
+
+export interface AriaNodeProps {
+  placeholder?: string;
+  url?: string;
+  value?: string;
+  multiline?: boolean;
+}
+
+export interface AriaNodeSummary {
+  ref: string;
+  role: string;
+  name?: string;
+  tag?: string;
+  description?: string;
+  elementId?: string;
+  selectorHint?: string;
+  text?: string;
+  path?: string;
+  states?: AriaNodeState;
+  props?: AriaNodeProps;
+  rect?: { x: number; y: number; width: number; height: number };
+  frameRef?: string;
+  sameOriginFrame?: boolean;
+}
+
+export interface AriaFrameSummary {
+  ref: string;
+  role: 'iframe';
+  elementId?: string;
+  name?: string;
+  src?: string;
+  sameOrigin: boolean;
+  title?: string;
+  url?: string;
+}
+
+export interface AriaTreeResultData {
+  tree: string;
+  filter: AriaTreeFilter;
+  nodeCount: number;
+  refCount: number;
+  sparse: boolean;
+  fallbackSuggested: boolean;
+  depth?: number;
+  rootRef?: string;
+  activeRef?: string;
+  focusedRef?: string;
+  frames: AriaFrameSummary[];
+  warnings?: string[];
+}
+
+export interface ResolveAriaRefData {
+  ref: string;
+  found: boolean;
+  node?: AriaNodeSummary;
+  reason?: string;
+}
+
+export interface AriaInspectResultData {
+  node: AriaNodeSummary;
+  nearbyText?: string;
+  availableActions?: InteractAction[];
+}
+
+export interface AriaInteractResultData {
+  action: InteractAction;
+  ref: string;
+  target: AriaNodeSummary;
+  success: boolean;
+  valuePreview?: string;
+  selectedValue?: string;
+  selectedLabel?: string;
+  key?: string;
+  urlChanged?: boolean;
+  domChanged?: boolean;
+  treeChanged?: boolean;
+  reloadSuggested?: boolean;
+}
+
+export interface WaitForAriaResultData {
+  matched: boolean;
+  elapsedMs: number;
+  condition: string;
+  matchedRef?: string;
 }
 
 export interface SelectOptionSummary {

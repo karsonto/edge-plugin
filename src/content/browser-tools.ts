@@ -24,6 +24,7 @@ import { extractAllVisibleText, truncateText } from '@/shared/utils/text-process
 import { isElementVisible, resolveSelector, resolveSelectorAll } from '@/shared/utils/dom-utils';
 import { createMessage } from '@/shared/utils';
 import { TOOL_ERRORS } from '@/shared/constants';
+import { ariaInspect, ariaInteract, readAriaTree, resolveAriaRef, waitForAria } from './aria-tools';
 
 type StoredElement = { el: Element; createdAt: number };
 
@@ -1882,6 +1883,16 @@ export async function executeTool(call: ToolCall, signal?: AbortSignal): Promise
         return tool_getPageInfo(signal);
       case 'getVisibleText':
         return tool_getVisibleText(signal);
+      case 'readAriaTree':
+        return readAriaTree(args);
+      case 'resolveAriaRef':
+        return resolveAriaRef(String(args.ref || ''));
+      case 'ariaInspect':
+        return ariaInspect(String(args.ref || ''));
+      case 'ariaInteract':
+        return ariaInteract(args);
+      case 'waitForAria':
+        return await waitForAria(args, signal);
       case 'query':
         return tool_query(args, signal);
       case 'findByText':

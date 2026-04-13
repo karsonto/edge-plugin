@@ -8,6 +8,11 @@ import type { ToolCall, ToolName } from '@/shared/types';
 
 const AUTOMATION_TOOLS: Set<ToolName> = new Set([
   'getPageInfo',
+  'readAriaTree',
+  'resolveAriaRef',
+  'ariaInspect',
+  'ariaInteract',
+  'waitForAria',
   'query',
   'findByText',
   'getValue',
@@ -30,6 +35,101 @@ export function getToolDefinitions() {
         parameters: {
           type: 'object',
           properties: {},
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'readAriaTree',
+        description: '读取页面或局部子树的可访问性树快照，返回 ref 可供后续交互使用',
+        parameters: {
+          type: 'object',
+          properties: {
+            filter: {
+              type: 'string',
+              enum: ['all', 'interactive'],
+              description: 'all 返回完整语义树，interactive 只保留可交互节点',
+            },
+            depth: {
+              type: 'number',
+              description: '限制树深度，避免大页面快照过大',
+            },
+            ref: {
+              type: 'string',
+              description: '从指定 ref 对应节点开始读取局部子树',
+            },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'resolveAriaRef',
+        description: '校验 ref 是否仍有效，并返回该 ref 对应的节点摘要',
+        parameters: {
+          type: 'object',
+          properties: {
+            ref: {
+              type: 'string',
+              description: 'readAriaTree 返回的 ref',
+            },
+          },
+          required: ['ref'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ariaInspect',
+        description: '读取指定 ref 节点的 role、name、状态、值和附近语义上下文',
+        parameters: {
+          type: 'object',
+          properties: {
+            ref: { type: 'string' },
+          },
+          required: ['ref'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'ariaInteract',
+        description: '基于 ARIA ref 执行单个低风险动作：click、type、press、selectOption',
+        parameters: {
+          type: 'object',
+          properties: {
+            ref: { type: 'string' },
+            action: { type: 'string', enum: ['click', 'type', 'press', 'selectOption'] },
+            text: { type: 'string' },
+            key: { type: 'string' },
+            value: { type: 'string' },
+            label: { type: 'string' },
+            mode: { type: 'string', enum: ['replace', 'append'] },
+          },
+          required: ['ref', 'action'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'waitForAria',
+        description: '等待指定 ref 仍可用，或等待 aria 条件稳定/消失',
+        parameters: {
+          type: 'object',
+          properties: {
+            ref: { type: 'string' },
+            name: { type: 'string' },
+            role: { type: 'string' },
+            state: { type: 'string', enum: ['appear', 'disappear', 'stable'] },
+            timeoutMs: { type: 'number' },
+          },
           required: [],
         },
       },
@@ -223,6 +323,11 @@ export function toolSpecText(): string {
     '',
     'Available tools (ToolName) and args:',
     '- getPageInfo: {}',
+    '- readAriaTree: { "filter"?: "all"|"interactive", "depth"?: number, "ref"?: string }',
+    '- resolveAriaRef: { "ref": string }',
+    '- ariaInspect: { "ref": string }',
+    '- ariaInteract: { "ref": string, "action": "click"|"type"|"press"|"selectOption", "text"?: string, "key"?: string, "value"?: string, "label"?: string, "mode"?: "replace"|"append" }',
+    '- waitForAria: { "ref"?: string, "name"?: string, "role"?: string, "state"?: "appear"|"disappear"|"stable", "timeoutMs"?: number }',
     '- findByText: { "text": string, "role"?: "button"|"link"|"field" }',
     '- query: { "selector": string, "selectorType"?: "css"|"xpath" }',
     '- getValue: { "elementId"?: string, "selector"?: string, "selectorType"?: "css"|"xpath", "targetText"?: string, "targetRole"?: "field"|"button"|"link", "attribute"?: string }',
@@ -275,6 +380,11 @@ export function validateToolCall(call: ToolCall): { ok: true } | { ok: false; re
   }
 
   // minimal per-tool required args
+  if (tool === 'resolveAriaRef' && !args?.ref) return { ok: false, reason: 'resolveAriaRef requires ref' };
+  if (tool === 'ariaInspect' && !args?.ref) return { ok: false, reason: 'ariaInspect requires ref' };
+  if (tool === 'ariaInteract' && !args?.ref) return { ok: false, reason: 'ariaInteract requires ref' };
+  if (tool === 'ariaInteract' && !args?.action) return { ok: false, reason: 'ariaInteract requires action' };
+  if (tool === 'waitForAria' && !args?.ref && !args?.name && !args?.role) return { ok: false, reason: 'waitForAria requires ref, name or role' };
   if (tool === 'query' && !args?.selector) return { ok: false, reason: 'query requires selector' };
   if (tool === 'findByText' && !args?.text) return { ok: false, reason: 'findByText requires text' };
   if (tool === 'getValue' && !args?.elementId && !args?.selector && !args?.targetText) return { ok: false, reason: 'getValue requires elementId, selector or targetText' };

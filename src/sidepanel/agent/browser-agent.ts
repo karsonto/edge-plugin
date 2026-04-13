@@ -13,6 +13,9 @@ import {
   type Usage,
 } from '@mariozechner/pi-ai';
 import type {
+  AriaInspectResultData,
+  AriaInteractResultData,
+  AriaTreeResultData,
   AIConfig,
   ChatMessage,
   ElementSummary,
@@ -22,7 +25,9 @@ import type {
   ScreenshotResultData,
   ToolCall,
   ToolResult,
+  ResolveAriaRefData,
   WaitForResultData,
+  WaitForAriaResultData,
 } from '@/shared/types';
 import {
   budgetCompactMessages,
@@ -45,14 +50,14 @@ const BASE_AGENT_SYSTEM_PROMPT = `你是网页智能助手。
 
 const BROWSER_TOOL_SYSTEM_PROMPT = `当前已启用浏览器页面工具。你可以读取页面并完成低风险网页操作。
 规则：
-1. 默认先读取后操作
-2. 优先使用 findByText/query 获取 elementId，再使用 elementId 操作
-3. 对常见表单字段，优先直接使用 targetText + targetRole="field" 进行 inspectElement / interact / getValue
-4. 当需要视觉确认布局、图表、颜色、截图证据时，使用 screenshotPage；优先一次截图解决问题，不要反复整页读取
-5. 如果用户已经明确选中了截图目标元素，优先对该目标截图；否则按页面截图
-6. 一次只执行一个动作工具
-7. 动作后必须验证结果，再决定下一步
-8. 不要重复读取整页，优先做局部检查
+1. 默认先读取 ARIA 语义树，再操作
+2. 优先使用 readAriaTree 获取 ref，再使用 ariaInspect / ariaInteract / waitForAria
+3. 对常见表单字段，优先通过 aria ref 定位；只有 ref 不足时再退回 findByText/query
+4. 动作后必须验证结果，优先使用 ariaInspect、waitForAria 或局部 readAriaTree(ref)
+5. 当需要视觉确认布局、图表、颜色、截图证据，或遇到跨域 iframe 时，使用 screenshotPage
+6. 旧的 findByText/query/getValue/inspectElement/interact/waitFor 是回退工具，不是主路径
+7. 一次只执行一个动作工具
+8. 不要重复读取整页，优先做局部子树检查
 9. 连续失败或无法确认页面状态时，停止并请求用户澄清
 10. 完成任务后，用简洁自然语言汇报结果`;
 
@@ -404,6 +409,26 @@ function summarizeToolResult(result: ToolResult): string {
       const data = result.data as { title?: string; url?: string } | undefined;
       return `getPageInfo: ${data?.title || 'untitled'} (${data?.url || ''})`;
     }
+    case 'readAriaTree': {
+      const data = result.data as AriaTreeResultData | undefined;
+      return `readAriaTree: nodes=${data?.nodeCount || 0} refs=${data?.refCount || 0} filter=${data?.filter || 'all'} sparse=${data?.sparse ? 'yes' : 'no'}${data?.warnings?.length ? ` warning=${truncateText(data.warnings.join('; '), 120)}` : ''}`;
+    }
+    case 'resolveAriaRef': {
+      const data = result.data as ResolveAriaRefData | undefined;
+      return `resolveAriaRef: ${data?.ref || 'unknown'} found=${data?.found ? 'yes' : 'no'}${data?.node ? ` -> ${data.node.role} ${truncateText(data.node.name || data.node.text || '', 60)}` : ''}`;
+    }
+    case 'ariaInspect': {
+      const data = result.data as AriaInspectResultData | undefined;
+      return `ariaInspect: ${data?.node?.ref || ''} ${data?.node?.role || ''} ${truncateText(data?.node?.name || data?.node?.text || '', 60)}${data?.nearbyText ? ` nearby=${truncateText(data.nearbyText, 60)}` : ''}`;
+    }
+    case 'ariaInteract': {
+      const data = result.data as AriaInteractResultData | undefined;
+      return `ariaInteract: ${data?.action} ${data?.target?.ref || ''} ${data?.target?.role || ''} success=${data?.success ? 'yes' : 'no'}${data?.valuePreview ? ` value=${truncateText(data.valuePreview, 60)}` : ''}${data?.reloadSuggested ? ' reloadSuggested=yes' : ''}`;
+    }
+    case 'waitForAria': {
+      const data = result.data as WaitForAriaResultData | undefined;
+      return `waitForAria: matched=${data?.matched ? 'yes' : 'no'} elapsed=${data?.elapsedMs || 0}ms condition=${data?.condition || ''}${data?.matchedRef ? ` ref=${data.matchedRef}` : ''}`;
+    }
     case 'query':
     case 'findByText': {
       const data = result.data as { elements?: ElementSummary[] } | undefined;
@@ -532,6 +557,65 @@ function createBrowserAgentTools(
 ): AgentTool[] {
   return [
     createTool('getPageInfo', 'Get Page Info', '获取当前页面的 URL 和标题', Type.Object({})),
+    createTool(
+      'readAriaTree',
+      'Read Aria Tree',
+      '读取页面或局部子树的 ARIA 语义树，返回 ref 供后续交互使用',
+      Type.Object({
+        filter: Type.Optional(Type.Union([Type.Literal('all'), Type.Literal('interactive')])),
+        depth: Type.Optional(Type.Number()),
+        ref: Type.Optional(Type.String()),
+      })
+    ),
+    createTool(
+      'resolveAriaRef',
+      'Resolve Aria Ref',
+      '校验 ref 是否仍有效，并返回 ref 对应的语义节点摘要',
+      Type.Object({
+        ref: Type.String(),
+      })
+    ),
+    createTool(
+      'ariaInspect',
+      'Inspect Aria Node',
+      '读取指定 ref 节点的 role、name、状态、值和附近语义上下文',
+      Type.Object({
+        ref: Type.String(),
+      })
+    ),
+    createTool(
+      'ariaInteract',
+      'Interact By Aria Ref',
+      '基于 ARIA ref 执行单个低风险动作：click、type、press、selectOption',
+      Type.Object({
+        ref: Type.String(),
+        action: Type.Union([
+          Type.Literal('click'),
+          Type.Literal('type'),
+          Type.Literal('press'),
+          Type.Literal('selectOption'),
+        ]),
+        text: Type.Optional(Type.String()),
+        key: Type.Optional(Type.String()),
+        value: Type.Optional(Type.String()),
+        label: Type.Optional(Type.String()),
+        mode: Type.Optional(Type.Union([Type.Literal('replace'), Type.Literal('append')])),
+      })
+    ),
+    createTool(
+      'waitForAria',
+      'Wait For Aria',
+      '等待指定 ref 或 aria 条件出现、消失或稳定',
+      Type.Object({
+        ref: Type.Optional(Type.String()),
+        name: Type.Optional(Type.String()),
+        role: Type.Optional(Type.String()),
+        state: Type.Optional(
+          Type.Union([Type.Literal('appear'), Type.Literal('disappear'), Type.Literal('stable')])
+        ),
+        timeoutMs: Type.Optional(Type.Number()),
+      })
+    ),
     createTool(
       'query',
       'Query Elements',
