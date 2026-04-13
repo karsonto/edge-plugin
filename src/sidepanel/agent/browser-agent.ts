@@ -510,6 +510,31 @@ async function executeBrowserTool(call: ToolCall, signal?: AbortSignal): Promise
   return result;
 }
 
+function buildToolContent(result: ToolResult, multimodal?: boolean) {
+  if (multimodal && result.ok) {
+    return [
+      { type: 'text' as const, text: summarizeToolResult(result) },
+      toImageContent(result.data as ScreenshotResultData),
+    ];
+  }
+
+  if (result.tool === 'readAriaTree' && result.ok) {
+    const data = result.data as AriaTreeResultData | undefined;
+    const summary = summarizeToolResult(result);
+    const tree = (data?.tree || '').trim();
+    const hints = [
+      'ARIA tree:',
+      tree || '[empty tree]',
+      '',
+      'Use the full ref value exactly as shown, for example `aria_1`.',
+      'Do not shorten, renumber, or strip the `aria_` prefix.',
+    ].join('\n');
+    return [{ type: 'text' as const, text: `${summary}\n\n${hints}` }];
+  }
+
+  return [{ type: 'text' as const, text: summarizeToolResult(result) }];
+}
+
 function createTool(
   name: ToolCall['tool'],
   label: string,
@@ -536,13 +561,7 @@ function createTool(
       };
       const args = Object.keys(mergedArgs).length > 0 ? mergedArgs : undefined;
       const result = await executeBrowserTool({ tool: name, args }, signal);
-      const content =
-        options?.multimodal && result.ok
-          ? [
-              { type: 'text' as const, text: summarizeToolResult(result) },
-              toImageContent(result.data as ScreenshotResultData),
-            ]
-          : [{ type: 'text' as const, text: summarizeToolResult(result) }];
+      const content = buildToolContent(result, options?.multimodal);
       return {
         content,
         details: sanitizeToolResult(result),

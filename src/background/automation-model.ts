@@ -22,6 +22,10 @@ const AUTOMATION_TOOLS: Set<ToolName> = new Set([
   'screenshotPage',
 ]);
 
+function isValidAriaRef(value: unknown): value is string {
+  return typeof value === 'string' && /^aria_[a-z0-9]+$/i.test(value.trim());
+}
+
 /**
  * 生成标准 OpenAI tools 定义
  */
@@ -385,6 +389,10 @@ export function validateToolCall(call: ToolCall): { ok: true } | { ok: false; re
   if (tool === 'ariaInteract' && !args?.ref) return { ok: false, reason: 'ariaInteract requires ref' };
   if (tool === 'ariaInteract' && !args?.action) return { ok: false, reason: 'ariaInteract requires action' };
   if (tool === 'waitForAria' && !args?.ref && !args?.name && !args?.role) return { ok: false, reason: 'waitForAria requires ref, name or role' };
+  if (tool === 'resolveAriaRef' && !isValidAriaRef(args?.ref)) return { ok: false, reason: 'resolveAriaRef requires a full aria ref like aria_1' };
+  if (tool === 'ariaInspect' && !isValidAriaRef(args?.ref)) return { ok: false, reason: 'ariaInspect requires a full aria ref like aria_1' };
+  if (tool === 'ariaInteract' && !isValidAriaRef(args?.ref)) return { ok: false, reason: 'ariaInteract requires a full aria ref like aria_1' };
+  if (tool === 'waitForAria' && args?.ref !== undefined && !isValidAriaRef(args?.ref)) return { ok: false, reason: 'waitForAria requires a full aria ref like aria_1 when ref is provided' };
   if (tool === 'query' && !args?.selector) return { ok: false, reason: 'query requires selector' };
   if (tool === 'findByText' && !args?.text) return { ok: false, reason: 'findByText requires text' };
   if (tool === 'getValue' && !args?.elementId && !args?.selector && !args?.targetText) return { ok: false, reason: 'getValue requires elementId, selector or targetText' };

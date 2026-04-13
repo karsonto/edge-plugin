@@ -72,15 +72,36 @@ function getOrCreateAriaRef(element: Element, path: string, frameRef?: string): 
   return ref;
 }
 
-function getStoredAriaElement(ref?: string): Element | null {
-  if (!ref) {
+function normalizeAriaRef(ref?: string): string | null {
+  if (typeof ref !== 'string') {
     return null;
   }
-  const entry = ariaRefStore.get(ref);
+  const trimmed = ref.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const bracketMatch = trimmed.match(/^\[ref=(aria_[a-z0-9]+)\]$/i);
+  if (bracketMatch) {
+    return bracketMatch[1];
+  }
+  const prefixedMatch = trimmed.match(/^ref=(aria_[a-z0-9]+)$/i);
+  if (prefixedMatch) {
+    return prefixedMatch[1];
+  }
+  if (/^aria_[a-z0-9]+$/i.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
+}
+
+function getStoredAriaElement(ref?: string): Element | null {
+  const normalizedRef = normalizeAriaRef(ref);
+  if (!normalizedRef) {
+    return null;
+  }
+  const entry = ariaRefStore.get(normalizedRef);
   if (!entry?.element?.isConnected) {
-    if (ref) {
-      ariaRefStore.delete(ref);
-    }
+    ariaRefStore.delete(normalizedRef);
     return null;
   }
   entry.createdAt = now();
@@ -630,22 +651,31 @@ export function readAriaTree(args: ReadAriaTreeArgs = {}): ToolResult<AriaTreeRe
 }
 
 export function resolveAriaRef(ref: string): ToolResult<ResolveAriaRefData> {
-  const element = getStoredAriaElement(ref);
+  const normalizedRef = normalizeAriaRef(ref);
+  if (!normalizedRef) {
+    return {
+      ok: false,
+      tool: 'resolveAriaRef',
+      error: `ref "${ref}" 格式无效，请使用完整 ref，例如 aria_1`,
+      data: { ref, found: false, reason: 'invalid_format' },
+    };
+  }
+  const element = getStoredAriaElement(normalizedRef);
   if (!element) {
     return {
       ok: false,
       tool: 'resolveAriaRef',
-      error: `ref "${ref}" 已失效，请重新读取语义树`,
-      data: { ref, found: false, reason: 'expired_or_missing' },
+      error: `ref "${normalizedRef}" 已失效，请重新读取语义树`,
+      data: { ref: normalizedRef, found: false, reason: 'expired_or_missing' },
     };
   }
-  const path = ariaRefStore.get(ref)?.path || ref;
-  const summary = summarizeNode(element, ref, path, ariaRefStore.get(ref)?.frameRef);
+  const path = ariaRefStore.get(normalizedRef)?.path || normalizedRef;
+  const summary = summarizeNode(element, normalizedRef, path, ariaRefStore.get(normalizedRef)?.frameRef);
   return {
     ok: true,
     tool: 'resolveAriaRef',
     data: {
-      ref,
+      ref: normalizedRef,
       found: Boolean(summary),
       node: summary || undefined,
     },
@@ -653,21 +683,29 @@ export function resolveAriaRef(ref: string): ToolResult<ResolveAriaRefData> {
 }
 
 export function ariaInspect(ref: string): ToolResult<AriaInspectResultData> {
-  const element = getStoredAriaElement(ref);
+  const normalizedRef = normalizeAriaRef(ref);
+  if (!normalizedRef) {
+    return {
+      ok: false,
+      tool: 'ariaInspect',
+      error: `ref "${ref}" 格式无效，请使用完整 ref，例如 aria_1`,
+    };
+  }
+  const element = getStoredAriaElement(normalizedRef);
   if (!element) {
     return {
       ok: false,
       tool: 'ariaInspect',
-      error: `ref "${ref}" 已失效，请重新读取语义树`,
+      error: `ref "${normalizedRef}" 已失效，请重新读取语义树`,
     };
   }
-  const path = ariaRefStore.get(ref)?.path || ref;
-  const summary = summarizeNode(element, ref, path, ariaRefStore.get(ref)?.frameRef);
+  const path = ariaRefStore.get(normalizedRef)?.path || normalizedRef;
+  const summary = summarizeNode(element, normalizedRef, path, ariaRefStore.get(normalizedRef)?.frameRef);
   if (!summary) {
     return {
       ok: false,
       tool: 'ariaInspect',
-      error: `ref "${ref}" 不是可读取的语义节点`,
+      error: `ref "${normalizedRef}" 不是可读取的语义节点`,
     };
   }
   return {
@@ -684,8 +722,15 @@ export function ariaInspect(ref: string): ToolResult<AriaInspectResultData> {
 export function ariaInteract(
   args: { ref?: string; action?: InteractAction; text?: string; key?: string; value?: string; label?: string; mode?: 'replace' | 'append' }
 ): ToolResult<AriaInteractResultData> {
-  const ref = args.ref || '';
+  const ref = normalizeAriaRef(args.ref || '');
   const action = args.action;
+  if (!ref) {
+    return {
+      ok: false,
+      tool: 'ariaInteract',
+      error: `ref "${args.ref || ''}" 格式无效，请使用完整 ref，例如 aria_1`,
+    };
+  }
   const element = getStoredAriaElement(ref);
   if (!element) {
     return {
@@ -794,6 +839,14 @@ export async function waitForAria(
   signal?: AbortSignal
 ): Promise<ToolResult<WaitForAriaResultData>> {
   const state = args.state || 'appear';
+  const normalizedRef = args.ref !== undefined ? normalizeAriaRef(args.ref) ?? undefined : undefined;
+  if (args.ref !== undefined && !normalizedRef) {
+    return {
+      ok: false,
+      tool: 'waitForAria',
+      error: `ref "${args.ref}" 格式无效，请使用完整 ref，例如 aria_1`,
+    };
+  }
   const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || 5000, 200), 15000);
   const startedAt = now();
   let stableSince = 0;
@@ -801,7 +854,7 @@ export async function waitForAria(
 
   while (now() - startedAt < timeoutMs) {
     assertNotAborted(signal);
-    const target = findAriaTarget({ ref: args.ref, name: args.name, role: args.role });
+    const target = findAriaTarget({ ref: normalizedRef, name: args.name, role: args.role });
     const matched = Boolean(target);
 
     if (state === 'appear' && matched) {
@@ -811,7 +864,7 @@ export async function waitForAria(
         data: {
           matched: true,
           elapsedMs: now() - startedAt,
-          condition: args.ref ? `ref:${args.ref}` : `role:${args.role || '*'} name:${args.name || '*'}`,
+          condition: normalizedRef ? `ref:${normalizedRef}` : `role:${args.role || '*'} name:${args.name || '*'}`,
           matchedRef: target?.ref,
         },
       };
@@ -823,7 +876,7 @@ export async function waitForAria(
         data: {
           matched: true,
           elapsedMs: now() - startedAt,
-          condition: args.ref ? `disappear:${args.ref}` : `disappear role:${args.role || '*'} name:${args.name || '*'}`,
+          condition: normalizedRef ? `disappear:${normalizedRef}` : `disappear role:${args.role || '*'} name:${args.name || '*'}`,
         },
       };
     }
