@@ -23,7 +23,7 @@ export interface StagedMemoryResult {
 
 export interface PageSummaryCacheEntry {
   cacheKey: string;
-  summary: string;
+  formatted: string;
 }
 
 const LONG_TERM_ITEM_LIMIT = 8;
@@ -106,21 +106,13 @@ export function summarizeToolLogs(toolLogs: ToolLogSummaryEntry[]): string | nul
   return ['[工具结果摘要]', ...lines].join('\n');
 }
 
-export function getPageSummaryCacheKey(pageContext: PageContext): string {
+export function getPageContextCacheKey(pageContext: PageContext): string {
   return `${pageContext.url}::${hashText(pageContext.content)}`;
 }
 
-function truncateStructuredText(text: string, maxLength: number) {
-  const normalized = normalizeStructuredText(text);
-  if (!normalized) {
-    return '';
-  }
-  return truncateText(normalized, maxLength);
-}
-
-export function summarizePageContext(pageContext: PageContext): string {
-  const selectedText = truncateStructuredText(pageContext.selectedText || '', 240);
-  const firstParagraph = truncateStructuredText(pageContext.content, 1200);
+export function formatPageContextForPrompt(pageContext: PageContext): string {
+  const selectedText = normalizeStructuredText(pageContext.selectedText || '');
+  const fullContent = normalizeStructuredText(pageContext.content);
   const metadataLines = [
     pageContext.metadata?.author ? `作者：${pageContext.metadata.author}` : '',
     pageContext.metadata?.publishDate ? `发布日期：${pageContext.metadata.publishDate}` : '',
@@ -130,7 +122,7 @@ export function summarizePageContext(pageContext: PageContext): string {
   ].filter(Boolean);
 
   const lines = [
-    `[页面上下文摘要]`,
+    `[页面上下文]`,
     `标题：${pageContext.title || '未命名页面'}`,
     `URL：${pageContext.url}`,
     ...metadataLines,
@@ -141,16 +133,16 @@ export function summarizePageContext(pageContext: PageContext): string {
     lines.push(selectedText);
   }
 
-  lines.push('内容摘录：');
-  lines.push(firstParagraph || '暂无可用内容');
+  lines.push('页面全文：');
+  lines.push(fullContent || '暂无可用内容');
   return lines.join('\n');
 }
 
-export function getOrCreatePageSummary(
+export function getOrCreateFormattedPageContext(
   cache: Map<string, PageSummaryCacheEntry>,
   pageContext: PageContext
 ): PageSummaryCacheEntry {
-  const cacheKey = getPageSummaryCacheKey(pageContext);
+  const cacheKey = getPageContextCacheKey(pageContext);
   const cached = cache.get(cacheKey);
   if (cached) {
     return cached;
@@ -158,7 +150,7 @@ export function getOrCreatePageSummary(
 
   const entry = {
     cacheKey,
-    summary: summarizePageContext(pageContext),
+    formatted: formatPageContextForPrompt(pageContext),
   };
   cache.set(cacheKey, entry);
   return entry;

@@ -9,7 +9,7 @@ import {
 import type { AIConfig, ChatMessage, PageContext } from '@/shared/types';
 import {
   buildStagedMemory,
-  getOrCreatePageSummary,
+  getOrCreateFormattedPageContext,
   summarizeToolLogs,
   type MemoryEntry,
   type PageSummaryCacheEntry,
@@ -198,7 +198,7 @@ export function budgetCompactMessages(
   const precompacted = precompactMessages(sourceMessages);
   const pinnedMessages = buildPinnedMessages(input.pinnedMemory);
   const pageSummary = input.pageContext && input.pageSummaryCache
-    ? getOrCreatePageSummary(input.pageSummaryCache, input.pageContext).summary
+    ? getOrCreateFormattedPageContext(input.pageSummaryCache, input.pageContext).formatted
     : undefined;
 
   const systemMessages: ChatMessage[] = [];

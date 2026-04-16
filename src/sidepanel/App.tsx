@@ -7,7 +7,7 @@ import { QuickActionsGrid } from './components/QuickActions/QuickActionsGrid';
 import { SettingsPanel } from './components/Settings/SettingsPanel';
 import { useChat, useSettings, usePageContext } from './hooks';
 import { useFileContext } from './hooks/useFileContext';
-import { summarizePageContext } from '@/shared/ai';
+import { formatPageContextForPrompt } from '@/shared/ai';
 import type { PageContext } from '@/shared/types';
 import { replacePlaceholders } from '@/shared/utils/text-processor';
 import { SUPPORTED_EXTENSIONS } from '@/shared/utils/file-parser';
@@ -196,7 +196,7 @@ function App() {
     const sections: string[] = [];
 
     if (includePageContextInPrompt && currentPageContext?.content?.trim()) {
-      sections.push(summarizePageContext(currentPageContext));
+      sections.push(formatPageContextForPrompt(currentPageContext));
     }
 
     if (fileContent?.trim()) {

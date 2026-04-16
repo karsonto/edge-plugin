@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { Agent, type AgentEvent } from '@mariozechner/pi-agent-core';
 import type { AIConfig, PageContext, SelectedScreenshotTarget } from '@/shared/types';
 import {
-  getOrCreatePageSummary,
+  getOrCreateFormattedPageContext,
+  type PageSummaryCacheEntry,
 } from '@/shared/ai';
 import { sendToContentScript, createMessage, onMessage, generateMessageId } from '@/shared/utils';
 import {
@@ -56,7 +57,7 @@ export const useChat = create<ChatStore>((set, get) => {
   let injectedPageContext: string | null = null;
   let currentAgentAssistantUiId: string | null = null;
   let currentToolStatusMessageId: string | null = null;
-  const pageSummaryCache = new Map<string, { cacheKey: string; summary: string }>();
+  const pageSummaryCache = new Map<string, PageSummaryCacheEntry>();
 
   const getToolIntent = (toolName: string, args: Record<string, any> | undefined) => {
     if (!args) return `执行工具 \`${toolName}\``;
@@ -338,7 +339,7 @@ export const useChat = create<ChatStore>((set, get) => {
     shouldStop = false;
     const shouldInjectPageContextAsSystem = options?.injectPageContextAsSystem ?? true;
     injectedPageContext = shouldInjectPageContextAsSystem && pageContext
-      ? getOrCreatePageSummary(pageSummaryCache, pageContext).summary
+      ? getOrCreateFormattedPageContext(pageSummaryCache, pageContext).formatted
       : null;
 
     try {
