@@ -176,6 +176,30 @@ function buildSupplementDocument(content: string, order: number): ExtractedPageD
   };
 }
 
+function buildIframeFallbackDocument(
+  id: string,
+  title: string,
+  url: string,
+  order: number,
+  content: string
+): ExtractedPageDocument | null {
+  const normalized = normalizeStructuredText(content);
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    id,
+    title,
+    url,
+    role: 'iframe',
+    sourceType: 'iframe',
+    format: 'text',
+    order,
+    content: normalized,
+  };
+}
+
 function buildSelectionDocument(content: string, order: number): ExtractedPageDocument | null {
   const normalized = normalizeStructuredText(content);
   if (!normalized) {
@@ -246,21 +270,34 @@ export function extractReadabilityPageContext(): PageContext {
   }
 
   getSameOriginIframeDocuments().forEach(({ doc, url, title }, index) => {
+    const order = 20 + index;
+    const docId = `iframe-${index + 1}`;
     const iframeResult = extractWithReadability(doc, url);
-    if (!iframeResult) {
+    if (iframeResult) {
+      documents.push(toExtractedDocument(
+        docId,
+        'iframe',
+        'iframe',
+        order,
+        {
+          ...iframeResult,
+          title: iframeResult.title || title,
+        }
+      ));
       return;
     }
 
-    documents.push(toExtractedDocument(
-      `iframe-${index + 1}`,
-      'iframe',
-      'iframe',
-      20 + index,
-      {
-        ...iframeResult,
-        title: iframeResult.title || title,
-      }
-    ));
+    const iframeVisibleText = extractAllVisibleText(doc);
+    const fallbackDoc = buildIframeFallbackDocument(
+      docId,
+      title,
+      url,
+      order,
+      iframeVisibleText
+    );
+    if (fallbackDoc) {
+      documents.push(fallbackDoc);
+    }
   });
 
   const supplementContent = extractShadowDomSupplement();
