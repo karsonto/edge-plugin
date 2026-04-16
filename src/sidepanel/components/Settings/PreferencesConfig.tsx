@@ -1,5 +1,10 @@
 import { Palette, Type, ToggleLeft, Shield } from 'lucide-react';
-import type { UIPreferences, BehaviorSettings, PrivacySettings } from '@/shared/types';
+import type {
+  UIPreferences,
+  BehaviorSettings,
+  PrivacySettings,
+  DefaultPageCaptureStrategy,
+} from '@/shared/types';
 
 interface PreferencesConfigProps {
   ui: UIPreferences;
@@ -82,6 +87,24 @@ export function PreferencesConfig({
             />
             <span className="text-sm text-gray-700">显示悬浮按钮</span>
           </label>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1.5">
+              默认页面抓取方式
+            </label>
+            <select
+              value={behavior.defaultPageCaptureStrategy}
+              onChange={(e) => onBehaviorChange({
+                defaultPageCaptureStrategy: e.target.value as DefaultPageCaptureStrategy,
+              })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary"
+            >
+              <option value="full">全文模式（保留 Shadow DOM / iframe 补充）</option>
+              <option value="readability">正文模式（Readability + Markdown）</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              正文模式会先提取主文档和同源 iframe 的正文，再转换为 Markdown 发给大模型。
+            </p>
+          </div>
         </div>
       </div>
 

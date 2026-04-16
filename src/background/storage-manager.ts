@@ -14,7 +14,15 @@ export class StorageManager {
    */
   async saveConfig(config: Partial<AppConfig>): Promise<void> {
     const currentConfig = await this.loadConfig();
-    const newConfig = { ...currentConfig, ...config };
+    const newConfig: AppConfig = {
+      ...currentConfig,
+      ...config,
+      ai: { ...currentConfig.ai, ...config.ai },
+      quickActions: config.quickActions || currentConfig.quickActions,
+      ui: { ...currentConfig.ui, ...config.ui },
+      behavior: { ...currentConfig.behavior, ...config.behavior },
+      privacy: { ...currentConfig.privacy, ...config.privacy },
+    };
     
     await chrome.storage.local.set({
       [STORAGE_KEYS.CONFIG]: newConfig,
@@ -26,7 +34,20 @@ export class StorageManager {
    */
   async loadConfig(): Promise<AppConfig> {
     const result = await chrome.storage.local.get(STORAGE_KEYS.CONFIG);
-    return result[STORAGE_KEYS.CONFIG] || DEFAULT_CONFIG;
+    const stored = result[STORAGE_KEYS.CONFIG];
+    if (!stored) {
+      return DEFAULT_CONFIG;
+    }
+
+    return {
+      ...DEFAULT_CONFIG,
+      ...stored,
+      ai: { ...DEFAULT_CONFIG.ai, ...stored.ai },
+      quickActions: stored.quickActions || DEFAULT_CONFIG.quickActions,
+      ui: { ...DEFAULT_CONFIG.ui, ...stored.ui },
+      behavior: { ...DEFAULT_CONFIG.behavior, ...stored.behavior },
+      privacy: { ...DEFAULT_CONFIG.privacy, ...stored.privacy },
+    };
   }
 
   /**

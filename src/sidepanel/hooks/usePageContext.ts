@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { PageContext } from '@/shared/types';
 import { sendToBackground, createMessage } from '@/shared/utils';
+import { DEFAULT_CONFIG } from '@/shared/constants';
 
 interface PageContextStore {
   context: PageContext | null;
@@ -28,8 +29,11 @@ export const usePageContext = create<PageContextStore>((set) => ({
       }
 
       // 发送消息到 content script（通过 background）
+      const result = await chrome.storage.local.get('edage_config');
+      const behavior = result?.edage_config?.behavior || {};
+      const strategy = behavior.defaultPageCaptureStrategy || DEFAULT_CONFIG.behavior.defaultPageCaptureStrategy;
       const response = await sendToBackground(
-        createMessage('GET_PAGE_CONTEXT', { tabId: tab.id })
+        createMessage('GET_PAGE_CONTEXT', { tabId: tab.id, strategy })
       );
 
       // 只接受明确的 PAGE_CONTEXT_RESPONSE，避免把 ERROR payload 当成 PageContext 导致白屏

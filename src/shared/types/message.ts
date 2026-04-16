@@ -4,6 +4,7 @@
  */
 
 import type { AIConfig } from './config';
+import type { ExtractionStrategy, PageContext } from './context';
 import type { SelectedScreenshotTarget, ToolCall, ToolResult } from './automation';
 
 export type MessageType =
@@ -37,22 +38,13 @@ export interface GetPageContextMessage extends BaseMessage {
      * 这时需要显式传 tabId，让 background 能正确转发到 content script。
      */
     tabId?: number;
+    strategy?: ExtractionStrategy;
   };
 }
 
 export interface PageContextResponseMessage extends BaseMessage {
   type: 'PAGE_CONTEXT_RESPONSE';
-  payload: {
-    title: string;
-    url: string;
-    content: string;
-    selectedText?: string;
-    metadata?: {
-      author?: string;
-      publishDate?: string;
-      wordCount?: number;
-    };
-  };
+  payload: PageContext;
 }
 
 export interface GenerateContinuitySummaryMessage extends BaseMessage {

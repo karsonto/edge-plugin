@@ -125,6 +125,8 @@ export function summarizePageContext(pageContext: PageContext): string {
     pageContext.metadata?.author ? `作者：${pageContext.metadata.author}` : '',
     pageContext.metadata?.publishDate ? `发布日期：${pageContext.metadata.publishDate}` : '',
     pageContext.metadata?.wordCount ? `字数：${pageContext.metadata.wordCount}` : '',
+    pageContext.extraction?.strategy ? `提取策略：${pageContext.extraction.strategy}` : '',
+    pageContext.extraction?.outputFormat ? `内容格式：${pageContext.extraction.outputFormat}` : '',
   ].filter(Boolean);
 
   const lines = [

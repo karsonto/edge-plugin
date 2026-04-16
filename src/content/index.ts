@@ -74,7 +74,7 @@ onMessage((message: Message, _sender, sendResponse) => {
 
   switch (message.type) {
     case 'GET_PAGE_CONTEXT':
-      handleGetPageContext(sendResponse);
+      handleGetPageContext(message, sendResponse);
       return true; // 保持消息通道开启
 
     case 'EXECUTE_TOOL':
@@ -104,11 +104,14 @@ onMessage((message: Message, _sender, sendResponse) => {
  * 处理获取页面上下文请求
  */
 function handleGetPageContext(
+  message: Message,
   sendResponse: (response: any) => void
 ) {
   try {
-    // 默认提取“全页可见文字”，更适配 SPA/后台系统页面
-    const context: PageContext = extractPageContext('full');
+    const strategy = message.type === 'GET_PAGE_CONTEXT'
+      ? message.payload?.strategy || 'full'
+      : 'full';
+    const context: PageContext = extractPageContext(strategy);
     
     sendResponse(
       createMessage('PAGE_CONTEXT_RESPONSE', context)

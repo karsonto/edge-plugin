@@ -36,7 +36,7 @@ export function ContextPreview({ context, isLoading }: ContextPreviewProps) {
     );
   }
 
-  const { title, url, content, metadata } = context;
+  const { title, url, content, metadata, extraction } = context;
   if (typeof content !== 'string') {
     return (
       <div className="p-4 bg-gray-50 border-b border-gray-200">
@@ -89,6 +89,12 @@ export function ContextPreview({ context, isLoading }: ContextPreviewProps) {
 
       {/* Metadata */}
       <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+        {extraction?.strategy && (
+          <span className="flex items-center gap-1">
+            <FileText size={12} />
+            {extraction.strategy === 'readability' ? '正文 Markdown' : '全文文本'}
+          </span>
+        )}
         {metadata.wordCount && (
           <span className="flex items-center gap-1">
             <BookOpen size={12} />

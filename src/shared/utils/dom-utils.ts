@@ -82,22 +82,22 @@ export function waitForElement<T extends Element = Element>(
 /**
  * 获取页面元数据
  */
-export function getPageMetadata() {
+export function getPageMetadata(doc: Document = document) {
   const getMetaContent = (name: string): string | undefined => {
     const meta = 
-      document.querySelector(`meta[name="${name}"]`) ||
-      document.querySelector(`meta[property="${name}"]`) ||
-      document.querySelector(`meta[property="og:${name}"]`);
+      doc.querySelector(`meta[name="${name}"]`) ||
+      doc.querySelector(`meta[property="${name}"]`) ||
+      doc.querySelector(`meta[property="og:${name}"]`);
     return meta?.getAttribute('content') || undefined;
   };
 
   return {
-    title: document.title,
+    title: doc.title,
     description: getMetaContent('description'),
     author: getMetaContent('author'),
     publishDate: getMetaContent('article:published_time'),
     keywords: getMetaContent('keywords')?.split(',').map(k => k.trim()),
-    language: document.documentElement.lang || undefined,
+    language: doc.documentElement.lang || undefined,
   };
 }
 

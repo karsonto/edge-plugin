@@ -110,16 +110,25 @@ async function handleGetPageContext(
           readingTime: Math.ceil(content.length / 500),
         },
         timestamp: Date.now(),
+        extraction: {
+          strategy: 'full',
+          outputFormat: 'text',
+          version: 'pdf-parser-v1',
+          fusionMethod: 'pdf',
+        },
+        documents: [{
+          id: 'pdf-main',
+          title: tab.title || 'PDF 文档',
+          url,
+          role: 'pdf',
+          sourceType: 'pdf',
+          format: 'text',
+          order: 0,
+          content,
+        }],
       };
 
-      const responseMessage = createMessage('PAGE_CONTEXT_RESPONSE', {
-        ...context,
-        metadata: {
-          author: undefined,
-          publishDate: undefined,
-          wordCount: context.metadata.wordCount,
-        },
-      });
+      const responseMessage = createMessage('PAGE_CONTEXT_RESPONSE', context);
 
       // 保存到存储
       storageManager.savePageContext(context);
@@ -140,7 +149,7 @@ async function handleGetPageContext(
   // 非 PDF 页面：发送消息到 content script 由 DOM 文本提取模块处理
   chrome.tabs.sendMessage(
     targetTabId,
-    createMessage('GET_PAGE_CONTEXT'),
+    createMessage('GET_PAGE_CONTEXT', (message as any)?.payload || {}),
     (response) => {
       if (chrome.runtime.lastError) {
         sendResponse({

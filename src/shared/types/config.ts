@@ -56,9 +56,12 @@ export interface UIPreferences {
 /**
  * 行为设置
  */
+export type DefaultPageCaptureStrategy = 'full' | 'readability';
+
 export interface BehaviorSettings {
   autoCapture: boolean;
   showFloatingButton: boolean;
+  defaultPageCaptureStrategy: DefaultPageCaptureStrategy;
 }
 
 /**

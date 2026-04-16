@@ -112,6 +112,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   behavior: {
     autoCapture: true,
     showFloatingButton: true,
+    defaultPageCaptureStrategy: 'full',
   },
   privacy: {
     excludeDomains: [],

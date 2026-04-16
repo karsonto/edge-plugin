@@ -25,8 +25,17 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       );
       
       if (response?.payload) {
-        set({
+        const mergedConfig = {
+          ...DEFAULT_CONFIG,
           ...response.payload,
+          ai: { ...DEFAULT_CONFIG.ai, ...response.payload.ai },
+          quickActions: response.payload.quickActions || DEFAULT_CONFIG.quickActions,
+          ui: { ...DEFAULT_CONFIG.ui, ...response.payload.ui },
+          behavior: { ...DEFAULT_CONFIG.behavior, ...response.payload.behavior },
+          privacy: { ...DEFAULT_CONFIG.privacy, ...response.payload.privacy },
+        };
+        set({
+          ...mergedConfig,
           isLoaded: true,
         });
       }

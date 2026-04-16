@@ -10,6 +10,7 @@ import {
   estimateReadingTime,
 } from '@/shared/utils/text-processor';
 import { getPageMetadata, getSelectedText } from '@/shared/utils/dom-utils';
+import { extractReadabilityPageContext } from './readability-extractor';
 
 /**
  * 提取页面上下文
@@ -17,6 +18,10 @@ import { getPageMetadata, getSelectedText } from '@/shared/utils/dom-utils';
 export function extractPageContext(
   strategy: ExtractionStrategy = 'auto'
 ): PageContext {
+  if (strategy === 'readability') {
+    return extractReadabilityPageContext();
+  }
+
   let content = '';
   let selectedText: string | undefined;
 
@@ -53,6 +58,12 @@ export function extractPageContext(
     selectedText: selectedText || undefined,
     metadata,
     timestamp: Date.now(),
+    extraction: {
+      strategy,
+      outputFormat: 'text',
+      version: 'legacy-visible-text-v1',
+      fusionMethod: 'single',
+    },
   };
 }
 
