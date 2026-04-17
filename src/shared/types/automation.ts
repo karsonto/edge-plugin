@@ -17,7 +17,6 @@ export type ToolName =
 export type SelectorType = 'css' | 'xpath';
 
 export type InteractAction = 'click' | 'type' | 'press' | 'selectOption';
-export type AriaTreeFilter = 'all' | 'interactive';
 export type AriaCheckedState = boolean | 'mixed';
 export type AriaPressedState = boolean | 'mixed';
 
@@ -105,7 +104,8 @@ export interface AriaFrameSummary {
 
 export interface AriaTreeResultData {
   tree: string;
-  filter: AriaTreeFilter;
+  /** 固定为完整语义树（历史上曾支持 interactive，已移除） */
+  filter: 'all';
   nodeCount: number;
   refCount: number;
   sparse: boolean;

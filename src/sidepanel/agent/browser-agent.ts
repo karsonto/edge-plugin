@@ -581,7 +581,6 @@ function createBrowserAgentTools(
       'Read Aria Tree',
       '读取页面或局部子树的 ARIA 语义树，返回 ref 供后续交互使用',
       Type.Object({
-        filter: Type.Optional(Type.Union([Type.Literal('all'), Type.Literal('interactive')])),
         depth: Type.Optional(Type.Number()),
         ref: Type.Optional(Type.String()),
       })

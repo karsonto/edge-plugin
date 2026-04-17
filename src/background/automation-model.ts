@@ -51,11 +51,6 @@ export function getToolDefinitions() {
         parameters: {
           type: 'object',
           properties: {
-            filter: {
-              type: 'string',
-              enum: ['all', 'interactive'],
-              description: 'all 返回完整语义树，interactive 只保留可交互节点',
-            },
             depth: {
               type: 'number',
               description: '限制树深度，避免大页面快照过大',
@@ -327,7 +322,7 @@ export function toolSpecText(): string {
     '',
     'Available tools (ToolName) and args:',
     '- getPageInfo: {}',
-    '- readAriaTree: { "filter"?: "all"|"interactive", "depth"?: number, "ref"?: string }',
+    '- readAriaTree: { "depth"?: number, "ref"?: string }',
     '- resolveAriaRef: { "ref": string }',
     '- ariaInspect: { "ref": string }',
     '- ariaInteract: { "ref": string, "action": "click"|"type"|"press"|"selectOption", "text"?: string, "key"?: string, "value"?: string, "label"?: string, "mode"?: "replace"|"append" }',

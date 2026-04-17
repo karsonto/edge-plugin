@@ -7,7 +7,6 @@ import type {
   AriaNodeState,
   AriaNodeSummary,
   AriaPressedState,
-  AriaTreeFilter,
   AriaTreeResultData,
   InteractAction,
   ResolveAriaRefData,
@@ -30,7 +29,6 @@ type AriaRenderNode = {
 };
 
 type ReadAriaTreeArgs = {
-  filter?: AriaTreeFilter;
   depth?: number;
   ref?: string;
 };
@@ -336,15 +334,9 @@ function isElementInteractive(element: Element, role?: string) {
   return element.hasAttribute('tabindex') || typeof (element as HTMLElement).onclick === 'function';
 }
 
-function shouldIncludeNode(element: Element, role: string | undefined, filter: AriaTreeFilter) {
+function shouldIncludeNode(element: Element, role: string | undefined) {
   if (!isActuallyVisible(element)) {
     return false;
-  }
-  if (!role && filter === 'interactive') {
-    return false;
-  }
-  if (filter === 'interactive') {
-    return isElementInteractive(element, role);
   }
   return Boolean(role || textContribution(element));
 }
@@ -458,7 +450,7 @@ function readIframeFrame(iframe: HTMLIFrameElement, ref: string): AriaFrameSumma
 
 function collectAriaTree(
   root: Element,
-  options: { filter: AriaTreeFilter; depth?: number; rootPath?: string; frameRef?: string; frames: AriaFrameSummary[] }
+  options: { depth?: number; rootPath?: string; frameRef?: string; frames: AriaFrameSummary[] }
 ): AriaRenderNode[] {
   const result: AriaRenderNode[] = [];
   const childCounters = new Map<string, number>();
@@ -482,7 +474,7 @@ function collectAriaTree(
         const frameRoot = element.contentDocument?.body;
         if (frameRoot) {
           children = collectAriaTree(frameRoot, {
-            ...options,
+            depth: options.depth,
             rootPath: path,
             frameRef: ref,
             frames: options.frames,
@@ -506,7 +498,7 @@ function collectAriaTree(
       }, children } : null;
     }
 
-    if (!shouldIncludeNode(element, role, options.filter)) {
+    if (!shouldIncludeNode(element, role)) {
       return children.length ? { summary, children } : null;
     }
 
@@ -536,7 +528,7 @@ function flattenTree(nodes: AriaRenderNode[], out: AriaNodeSummary[] = []): Aria
 }
 
 function findAriaTarget(query: AriaQuery): AriaNodeSummary | undefined {
-  const all = flattenTree(collectAriaTree(document.body, { filter: 'all', frames: [] }));
+  const all = flattenTree(collectAriaTree(document.body, { frames: [] }));
   if (query.ref) {
     return all.find((node) => node.ref === query.ref);
   }
@@ -629,7 +621,6 @@ function waitForNextPaint(signal?: AbortSignal): Promise<void> {
 }
 
 export function readAriaTree(args: ReadAriaTreeArgs = {}): ToolResult<AriaTreeResultData> {
-  const filter = args.filter === 'interactive' ? 'interactive' : 'all';
   const depth = Number.isInteger(args.depth) && Number(args.depth) >= 0 ? Number(args.depth) : undefined;
   const root = args.ref ? getStoredAriaElement(args.ref) : document.body;
   if (!root) {
@@ -641,7 +632,7 @@ export function readAriaTree(args: ReadAriaTreeArgs = {}): ToolResult<AriaTreeRe
   }
 
   const frames: AriaFrameSummary[] = [];
-  const tree = collectAriaTree(root, { filter, depth, rootPath: args.ref, frames });
+  const tree = collectAriaTree(root, { depth, rootPath: args.ref, frames });
   const flattened = flattenTree(tree);
   const treeText = renderTree(tree).join('\n');
   const interactiveCount = flattened.filter((node) => isInteractiveRole(node.role)).length;
@@ -655,7 +646,7 @@ export function readAriaTree(args: ReadAriaTreeArgs = {}): ToolResult<AriaTreeRe
     tool: 'readAriaTree',
     data: {
       tree: treeText,
-      filter,
+      filter: 'all',
       nodeCount: flattened.length,
       refCount: flattened.length,
       sparse,
