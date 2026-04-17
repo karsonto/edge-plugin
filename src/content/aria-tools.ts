@@ -510,6 +510,10 @@ function collectAriaTree(
       return children.length ? { summary, children } : null;
     }
 
+    if (!role && children.length > 0) {
+      summary.text = undefined;
+    }
+
     return { summary, children };
   };
 
