@@ -306,9 +306,7 @@ function getNodeProps(element: Element, role: string | undefined): AriaNodeProps
     props.url = element.href || undefined;
   }
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
-    if (element.value) {
-      props.value = truncateText(element.value, 200);
-    }
+    props.value = truncateText(element.value, 200);
   }
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
     if (element.placeholder) {
@@ -575,8 +573,11 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: 
 }
 
 function dispatchInputEvents(element: HTMLElement) {
+  element.dispatchEvent(new Event('focus', { bubbles: true }));
+  element.dispatchEvent(new Event('beforeinput', { bubbles: true, cancelable: true }));
   element.dispatchEvent(new Event('input', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
+  element.dispatchEvent(new Event('blur', { bubbles: true }));
 }
 
 function dispatchKeyboardSequence(element: HTMLElement, key: string) {
