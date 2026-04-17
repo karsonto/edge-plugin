@@ -608,6 +608,21 @@ function sleep(ms: number, signal?: AbortSignal) {
   });
 }
 
+function waitForNextPaint(signal?: AbortSignal): Promise<void> {
+  assertNotAborted(signal);
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      cancelAnimationFrame(rafId);
+      reject(new Error('操作已中断。'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const rafId = requestAnimationFrame(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    });
+  });
+}
+
 export function readAriaTree(args: ReadAriaTreeArgs = {}): ToolResult<AriaTreeResultData> {
   const filter = args.filter === 'interactive' ? 'interactive' : 'all';
   const depth = Number.isInteger(args.depth) && Number(args.depth) >= 0 ? Number(args.depth) : undefined;
@@ -719,9 +734,10 @@ export function ariaInspect(ref: string): ToolResult<AriaInspectResultData> {
   };
 }
 
-export function ariaInteract(
-  args: { ref?: string; action?: InteractAction; text?: string; key?: string; value?: string; label?: string; mode?: 'replace' | 'append' }
-): ToolResult<AriaInteractResultData> {
+export async function ariaInteract(
+  args: { ref?: string; action?: InteractAction; text?: string; key?: string; value?: string; label?: string; mode?: 'replace' | 'append' },
+  signal?: AbortSignal
+): Promise<ToolResult<AriaInteractResultData>> {
   const ref = normalizeAriaRef(args.ref || '');
   const action = args.action;
   if (!ref) {
@@ -768,11 +784,14 @@ export function ariaInteract(
   try {
     const htmlElement = element as HTMLElement;
     switch (action) {
-      case 'click':
-        htmlElement.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior });
+      case 'click': {
+        htmlElement.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+        await waitForNextPaint(signal);
         htmlElement.focus?.();
+        await waitForNextPaint(signal);
         htmlElement.click?.();
         break;
+      }
       case 'type': {
         const text = args.text ?? '';
         if (!text) throw new Error('缺少 text');

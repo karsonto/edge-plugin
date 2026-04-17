@@ -1294,10 +1294,12 @@ function dispatchKeyboardSequence(el: HTMLElement, key: string) {
   el.dispatchEvent(new KeyboardEvent('keyup', options));
 }
 
-function interactClick(el: Element) {
+async function interactClick(el: Element, signal?: AbortSignal) {
   const htmlEl = el as HTMLElement;
-  htmlEl.scrollIntoView?.({ block: 'center', inline: 'center', behavior: 'instant' as ScrollBehavior });
+  htmlEl.scrollIntoView?.({ block: 'center', inline: 'nearest', behavior: 'instant' });
+  await waitForNextPaint(signal);
   htmlEl.focus?.();
+  await waitForNextPaint(signal);
   htmlEl.click?.();
 }
 
@@ -1499,7 +1501,7 @@ function tool_inspectElement(args: any, signal?: AbortSignal): ToolResult<Inspec
   };
 }
 
-function tool_interact(args: any, signal?: AbortSignal): ToolResult<InteractResultData> {
+async function tool_interact(args: any, signal?: AbortSignal): Promise<ToolResult<InteractResultData>> {
   assertNotAborted(signal);
   const action = (args?.action as InteractAction | undefined) || 'click';
   const resolved = resolveTargetOrError(
@@ -1531,7 +1533,7 @@ function tool_interact(args: any, signal?: AbortSignal): ToolResult<InteractResu
 
   switch (action) {
     case 'click':
-      interactClick(el);
+      await interactClick(el, signal);
       break;
     case 'type': {
       const text = typeof args?.text === 'string' ? args.text : '';
@@ -1890,7 +1892,7 @@ export async function executeTool(call: ToolCall, signal?: AbortSignal): Promise
       case 'ariaInspect':
         return ariaInspect(String(args.ref || ''));
       case 'ariaInteract':
-        return ariaInteract(args);
+        return await ariaInteract(args, signal);
       case 'waitForAria':
         return await waitForAria(args, signal);
       case 'query':
@@ -1902,7 +1904,7 @@ export async function executeTool(call: ToolCall, signal?: AbortSignal): Promise
       case 'inspectElement':
         return tool_inspectElement(args, signal);
       case 'interact':
-        return tool_interact(args, signal);
+        return await tool_interact(args, signal);
       case 'waitFor':
         return await tool_waitFor(args, signal);
       case 'screenshotPage':
