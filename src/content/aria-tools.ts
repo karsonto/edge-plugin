@@ -15,6 +15,7 @@ import type {
   WaitForState,
 } from '@/shared/types';
 import { truncateText } from '@/shared/utils/text-processor';
+import { dispatchSyntheticMouseClick } from '@/shared/utils/synthetic-mouse-click';
 
 type AriaStoreEntry = {
   element: Element;
@@ -119,6 +120,46 @@ function isActuallyVisible(element: Element): boolean {
   return rect.width > 0 && rect.height > 0;
 }
 
+/**
+ * 自定义下拉等场景下，原生 select/textarea 常被设为 0×0 但仍与 label/aria 关联且可聚焦。
+ * 若一律用 bounding rect 过滤，会整颗丢失这些控件。
+ */
+function isObscuredButMeaningfulFormControl(element: Element): boolean {
+  if (!(element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)) {
+    return false;
+  }
+  const style = window.getComputedStyle(element);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
+    return false;
+  }
+  const rect = element.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    return false;
+  }
+  const html = element as HTMLElement;
+  if (html.tabIndex >= 0) {
+    return true;
+  }
+  if (normalizeSpace(element.getAttribute('aria-label'))) {
+    return true;
+  }
+  if (resolveAriaLabelledBy(element)) {
+    return true;
+  }
+  const id = element.getAttribute('id');
+  if (id && element.ownerDocument.querySelector(`label[for="${CSS.escape(id)}"]`)) {
+    return true;
+  }
+  if (element.closest('label')) {
+    return true;
+  }
+  return false;
+}
+
+function isIncludedInAriaTree(element: Element): boolean {
+  return isActuallyVisible(element) || isObscuredButMeaningfulFormControl(element);
+}
+
 function buildSelectorHint(element: Element): string | undefined {
   const id = element.getAttribute('id');
   if (id) {
@@ -197,6 +238,12 @@ function getLabelText(element: Element): string | undefined {
       return placeholder;
     }
   }
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+    const nameAttr = normalizeSpace(element.getAttribute('name'));
+    if (nameAttr) {
+      return nameAttr;
+    }
+  }
   const innerText = normalizeSpace((element as HTMLElement).innerText || element.textContent);
   return innerText || undefined;
 }
@@ -209,7 +256,9 @@ function inferRole(element: Element): string | undefined {
   if (element instanceof HTMLButtonElement) return 'button';
   if (element instanceof HTMLAnchorElement && element.href) return 'link';
   if (element instanceof HTMLTextAreaElement) return 'textbox';
-  if (element instanceof HTMLSelectElement) return 'combobox';
+  if (element instanceof HTMLSelectElement) {
+    return element.multiple ? 'listbox' : 'combobox';
+  }
   if (element instanceof HTMLInputElement) {
     const type = (element.type || 'text').toLowerCase();
     if (type === 'checkbox') return 'checkbox';
@@ -323,7 +372,7 @@ function textContribution(element: Element): string | undefined {
 }
 
 function isInteractiveRole(role?: string) {
-  return Boolean(role && ['button', 'link', 'checkbox', 'radio', 'textbox', 'combobox', 'option', 'switch', 'tab', 'menuitem'].includes(role));
+  return Boolean(role && ['button', 'link', 'checkbox', 'radio', 'textbox', 'combobox', 'listbox', 'option', 'switch', 'tab', 'menuitem'].includes(role));
 }
 
 function isElementInteractive(element: Element, role?: string) {
@@ -335,7 +384,7 @@ function isElementInteractive(element: Element, role?: string) {
 }
 
 function shouldIncludeNode(element: Element, role: string | undefined) {
-  if (!isActuallyVisible(element)) {
+  if (!isIncludedInAriaTree(element)) {
     return false;
   }
   return Boolean(role || textContribution(element));
@@ -357,7 +406,9 @@ function formatStates(summary: AriaNodeSummary): string {
 }
 
 function formatNodeLine(summary: AriaNodeSummary): string {
-  const parts = [`- ${summary.role}`];
+  const tag = summary.tag || '';
+  const tagHint = tag === 'textarea' || tag === 'select' || tag === 'input' ? ` <${tag}>` : '';
+  const parts = [`- ${summary.role}${tagHint}`];
   if (summary.name) {
     parts.push(`"${summary.name.replace(/"/g, '\\"')}"`);
   }
@@ -785,7 +836,7 @@ export async function ariaInteract(
         await waitForNextPaint(signal);
         htmlElement.focus?.();
         await waitForNextPaint(signal);
-        htmlElement.click?.();
+        dispatchSyntheticMouseClick(element);
         break;
       }
       case 'type': {

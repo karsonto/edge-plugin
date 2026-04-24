@@ -22,6 +22,7 @@ import type {
 } from '@/shared/types';
 import { extractAllVisibleText, truncateText } from '@/shared/utils/text-processor';
 import { isElementVisible, resolveSelector, resolveSelectorAll } from '@/shared/utils/dom-utils';
+import { dispatchSyntheticMouseClick } from '@/shared/utils/synthetic-mouse-click';
 import { createMessage } from '@/shared/utils';
 import { TOOL_ERRORS } from '@/shared/constants';
 import { ariaInspect, ariaInteract, readAriaTree, resolveAriaRef, waitForAria } from './aria-tools';
@@ -1300,7 +1301,7 @@ async function interactClick(el: Element, signal?: AbortSignal) {
   await waitForNextPaint(signal);
   htmlEl.focus?.();
   await waitForNextPaint(signal);
-  htmlEl.click?.();
+  dispatchSyntheticMouseClick(el);
 }
 
 function interactType(el: Element, text: string, mode: 'replace' | 'append' = 'replace') {

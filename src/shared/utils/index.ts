@@ -5,3 +5,4 @@
 export * from './message-bridge';
 export * from './text-processor';
 export * from './dom-utils';
+export * from './synthetic-mouse-click';
