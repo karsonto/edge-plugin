@@ -132,6 +132,8 @@ export interface FindAriaNodesResultData {
     text?: string;
     scopeRef?: string;
     limit: number;
+    interactiveOnly?: boolean;
+    intent?: 'click' | 'type' | 'select';
   };
   candidates: AriaNodeSummary[];
 }
@@ -147,6 +149,8 @@ export interface AriaInspectResultData {
   node: AriaNodeSummary;
   nearbyText?: string;
   availableActions?: InteractAction[];
+  interactiveAncestor?: AriaNodeSummary;
+  interactiveAncestors?: AriaNodeSummary[];
 }
 
 export interface AriaInteractResultData {

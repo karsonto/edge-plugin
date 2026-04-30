@@ -418,7 +418,7 @@ function summarizeToolResult(result: ToolResult): string {
     }
     case 'findAriaNodes': {
       const data = result.data as FindAriaNodesResultData | undefined;
-      return `findAriaNodes: found ${data?.candidates?.length || 0} candidate(s)`;
+      return `findAriaNodes: found ${data?.candidates?.length || 0} candidate(s)${data?.query?.intent ? ` intent=${data.query.intent}` : ''}${data?.query?.interactiveOnly ? ' interactiveOnly=yes' : ''}`;
     }
     case 'resolveAriaRef': {
       const data = result.data as ResolveAriaRefData | undefined;
@@ -426,11 +426,16 @@ function summarizeToolResult(result: ToolResult): string {
     }
     case 'ariaInspect': {
       const data = result.data as AriaInspectResultData | undefined;
-      return `ariaInspect: ${data?.node?.ref || ''} ${data?.node?.role || ''} ${truncateText(data?.node?.name || data?.node?.text || '', 60)}${data?.nearbyText ? ` nearby=${truncateText(data.nearbyText, 60)}` : ''}`;
+      return `ariaInspect: ${data?.node?.ref || ''} ${data?.node?.role || ''} ${truncateText(data?.node?.name || data?.node?.text || '', 60)}${data?.interactiveAncestor ? ` ancestor=${data.interactiveAncestor.role}:${truncateText(data.interactiveAncestor.name || data.interactiveAncestor.text || '', 40)}` : ''}${data?.nearbyText ? ` nearby=${truncateText(data.nearbyText, 60)}` : ''}`;
     }
     case 'ariaInteract': {
       const data = result.data as AriaInteractResultData | undefined;
-      return `ariaInteract: ${data?.action} ${data?.target?.ref || ''} ${data?.target?.role || ''} success=${data?.success ? 'yes' : 'no'}${data?.valuePreview ? ` value=${truncateText(data.valuePreview, 60)}` : ''}${data?.reloadSuggested ? ' reloadSuggested=yes' : ''}`;
+      const changedFields = data?.changedFields?.length ? ` changed=${data.changedFields.join(',')}` : '';
+      const nameChanged =
+        data?.beforeNode?.name !== data?.afterNode?.name && (data?.beforeNode?.name || data?.afterNode?.name)
+          ? ` name="${truncateText(data?.beforeNode?.name || '', 30)}"->"${truncateText(data?.afterNode?.name || '', 30)}"`
+          : '';
+      return `ariaInteract: ${data?.action} ${data?.target?.ref || ''} ${data?.target?.role || ''} success=${data?.success ? 'yes' : 'no'}${changedFields}${nameChanged}${data?.valuePreview ? ` value=${truncateText(data.valuePreview, 60)}` : ''}${data?.reloadSuggested ? ' reloadSuggested=yes' : ''}`;
     }
     case 'waitForAria': {
       const data = result.data as WaitForAriaResultData | undefined;
@@ -700,13 +705,21 @@ function createBrowserAgentTools(
       'findAriaNodes',
       'Find Aria Nodes',
       '按 role、name、text 在当前页面或指定 scopeRef 下检索语义节点候选，返回可直接使用的 ref',
-      Type.Object({
-        name: Type.Optional(Type.String()),
-        role: Type.Optional(Type.String()),
-        text: Type.Optional(Type.String()),
-        scopeRef: Type.Optional(Type.String()),
-        limit: Type.Optional(Type.Number()),
-      })
+            Type.Object({
+              name: Type.Optional(Type.String()),
+              role: Type.Optional(Type.String()),
+              text: Type.Optional(Type.String()),
+              scopeRef: Type.Optional(Type.String()),
+              limit: Type.Optional(Type.Number()),
+              interactiveOnly: Type.Optional(Type.Boolean()),
+              intent: Type.Optional(
+                Type.Union([
+                  Type.Literal('click'),
+                  Type.Literal('type'),
+                  Type.Literal('select'),
+                ])
+              ),
+            })
     ),
     createTool(
       'resolveAriaRef',

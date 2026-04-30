@@ -42,6 +42,8 @@ type AriaQuery = {
   text?: string;
   scopeRef?: string;
   limit?: number;
+  interactiveOnly?: boolean;
+  intent?: 'click' | 'type' | 'select';
 };
 
 const REF_MAX_AGE_MS = 10 * 60 * 1000;
@@ -653,6 +655,34 @@ function scoreAriaNodeMatch(node: AriaNodeSummary, query: AriaQuery) {
     score -= 10;
   }
 
+  if (query.interactiveOnly && !isInteractiveRole(node.role)) {
+    return -1;
+  }
+
+  if (query.intent === 'click') {
+    if (node.role === 'button' || node.role === 'link' || node.role === 'switch' || node.role === 'tab') {
+      score += 25;
+    } else if (!isInteractiveRole(node.role)) {
+      return -1;
+    }
+  }
+
+  if (query.intent === 'type') {
+    if (node.role === 'textbox') {
+      score += 25;
+    } else if (node.role !== 'combobox') {
+      return -1;
+    }
+  }
+
+  if (query.intent === 'select') {
+    if (node.role === 'combobox' || node.role === 'listbox' || node.role === 'option') {
+      score += 25;
+    } else if (!isInteractiveRole(node.role)) {
+      return -1;
+    }
+  }
+
   return score;
 }
 
@@ -878,6 +908,8 @@ export function findAriaNodes(args: {
   text?: string;
   scopeRef?: string;
   limit?: number;
+  interactiveOnly?: boolean;
+  intent?: 'click' | 'type' | 'select';
 } = {}): ToolResult<FindAriaNodesResultData> {
   const scopeRef = args.scopeRef ? normalizeAriaRef(args.scopeRef) || undefined : undefined;
   if (args.scopeRef && !scopeRef) {
@@ -902,6 +934,8 @@ export function findAriaNodes(args: {
     text: args.text,
     scopeRef,
     limit: args.limit,
+    interactiveOnly: Boolean(args.interactiveOnly),
+    intent: args.intent,
   });
 
   return {
@@ -914,10 +948,32 @@ export function findAriaNodes(args: {
         text: normalizeSpace(args.text) || undefined,
         scopeRef,
         limit: Math.min(Math.max(Number(args.limit) || 5, 1), 10),
+        interactiveOnly: Boolean(args.interactiveOnly),
+        intent: args.intent,
       },
       candidates,
     },
   };
+}
+
+function findInteractiveAncestors(element: Element, limit = 3): AriaNodeSummary[] {
+  const result: AriaNodeSummary[] = [];
+  let current = element.parentElement;
+
+  while (current && result.length < limit) {
+    const role = inferRole(current);
+    if (isElementInteractive(current, role)) {
+      const ref = getOrCreateAriaRef(current, `ancestor_${result.length + 1}`);
+      const path = ariaRefStore.get(ref)?.path || ref;
+      const summary = summarizeNode(current, ref, path, ariaRefStore.get(ref)?.frameRef);
+      if (summary) {
+        result.push(summary);
+      }
+    }
+    current = current.parentElement;
+  }
+
+  return result;
 }
 
 export function resolveAriaRef(ref: string): ToolResult<ResolveAriaRefData> {
@@ -985,6 +1041,8 @@ export function ariaInspect(ref: string): ToolResult<AriaInspectResultData> {
       node: summary,
       nearbyText: truncateText(normalizeSpace(element.closest('label, form, section, article, main, div')?.textContent), 240) || undefined,
       availableActions: getAvailableActions(element),
+      interactiveAncestor: findInteractiveAncestors(element, 1)[0],
+      interactiveAncestors: findInteractiveAncestors(element, 3),
     },
   };
 }
