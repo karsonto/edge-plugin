@@ -1,6 +1,7 @@
 import type {
   AriaCheckedState,
   AriaFrameSummary,
+  FindAriaNodesResultData,
   AriaInspectResultData,
   AriaInteractResultData,
   AriaNodeProps,
@@ -38,6 +39,9 @@ type AriaQuery = {
   ref?: string;
   name?: string;
   role?: string;
+  text?: string;
+  scopeRef?: string;
+  limit?: number;
 };
 
 const REF_MAX_AGE_MS = 10 * 60 * 1000;
@@ -578,18 +582,85 @@ function flattenTree(nodes: AriaRenderNode[], out: AriaNodeSummary[] = []): Aria
   return out;
 }
 
-function findAriaTarget(query: AriaQuery): AriaNodeSummary | undefined {
-  const all = flattenTree(collectAriaTree(document.body, { frames: [] }));
-  if (query.ref) {
-    return all.find((node) => node.ref === query.ref);
+function getAriaSearchSpace(scopeRef?: string) {
+  const scopeElement = scopeRef ? getStoredAriaElement(scopeRef) : document.body;
+  if (!scopeElement) {
+    return { root: null, flattened: [] as AriaNodeSummary[] };
   }
-  const name = normalizeSpace(query.name).toLowerCase();
-  const role = normalizeSpace(query.role).toLowerCase();
-  return all.find((node) => {
-    const roleMatches = !role || node.role.toLowerCase() === role;
-    const nameMatches = !name || (node.name || node.text || '').toLowerCase().includes(name);
-    return roleMatches && nameMatches;
-  });
+
+  const frames: AriaFrameSummary[] = [];
+  const tree = collectAriaTree(scopeElement, { rootPath: scopeRef, frames });
+  return {
+    root: scopeElement,
+    flattened: flattenTree(tree),
+  };
+}
+
+function scoreAriaNodeMatch(node: AriaNodeSummary, query: AriaQuery) {
+  const wantedName = normalizeSpace(query.name).toLowerCase();
+  const wantedRole = normalizeSpace(query.role).toLowerCase();
+  const wantedText = normalizeSpace(query.text).toLowerCase();
+  const nodeRole = normalizeSpace(node.role).toLowerCase();
+  const nodeName = normalizeSpace(node.name).toLowerCase();
+  const nodeText = normalizeSpace(node.text).toLowerCase();
+  const nodePath = normalizeSpace(node.path).toLowerCase();
+
+  if (wantedRole && nodeRole !== wantedRole) {
+    return -1;
+  }
+
+  let score = 0;
+
+  if (wantedName) {
+    if (nodeName === wantedName) score += 120;
+    else if (nodeName.startsWith(wantedName)) score += 95;
+    else if (nodeName.includes(wantedName)) score += 75;
+    else if (nodeText.includes(wantedName)) score += 45;
+    else return -1;
+  }
+
+  if (wantedText) {
+    if (nodeText === wantedText) score += 100;
+    else if (nodeText.startsWith(wantedText)) score += 80;
+    else if (nodeText.includes(wantedText)) score += 60;
+    else if (nodeName.includes(wantedText)) score += 35;
+    else if (nodePath.includes(wantedText)) score += 20;
+    else return wantedName ? score : -1;
+  }
+
+  if (wantedRole) {
+    score += 20;
+  }
+
+  if (!wantedName && !wantedText && wantedRole) {
+    score += 10;
+  }
+
+  if (node.states?.disabled) {
+    score -= 10;
+  }
+
+  return score;
+}
+
+function findAriaTargets(query: AriaQuery): AriaNodeSummary[] {
+  const { flattened } = getAriaSearchSpace(query.scopeRef);
+
+  if (query.ref) {
+    return flattened.filter((node) => node.ref === query.ref);
+  }
+
+  const scored = flattened
+    .map((node) => ({ node, score: scoreAriaNodeMatch(node, query) }))
+    .filter((entry) => entry.score >= 0)
+    .sort((a, b) => b.score - a.score);
+
+  const limit = Math.min(Math.max(Number(query.limit) || 5, 1), 10);
+  return scored.slice(0, limit).map((entry) => entry.node);
+}
+
+function findAriaTarget(query: AriaQuery): AriaNodeSummary | undefined {
+  return findAriaTargets({ ...query, limit: 1 })[0];
 }
 
 function getAvailableActions(element: Element): InteractAction[] {
@@ -708,6 +779,54 @@ export function readAriaTree(args: ReadAriaTreeArgs = {}): ToolResult<AriaTreeRe
       focusedRef: activeRef,
       frames,
       warnings,
+    },
+  };
+}
+
+export function findAriaNodes(args: {
+  name?: string;
+  role?: string;
+  text?: string;
+  scopeRef?: string;
+  limit?: number;
+} = {}): ToolResult<FindAriaNodesResultData> {
+  const scopeRef = args.scopeRef ? normalizeAriaRef(args.scopeRef) || undefined : undefined;
+  if (args.scopeRef && !scopeRef) {
+    return {
+      ok: false,
+      tool: 'findAriaNodes',
+      error: `scopeRef "${args.scopeRef}" 格式无效，请使用完整 ref，例如 aria_1`,
+    };
+  }
+
+  if (!normalizeSpace(args.name) && !normalizeSpace(args.text) && !normalizeSpace(args.role)) {
+    return {
+      ok: false,
+      tool: 'findAriaNodes',
+      error: 'findAriaNodes 需要至少提供 name、text 或 role 之一',
+    };
+  }
+
+  const candidates = findAriaTargets({
+    name: args.name,
+    role: args.role,
+    text: args.text,
+    scopeRef,
+    limit: args.limit,
+  });
+
+  return {
+    ok: true,
+    tool: 'findAriaNodes',
+    data: {
+      query: {
+        name: normalizeSpace(args.name) || undefined,
+        role: normalizeSpace(args.role) || undefined,
+        text: normalizeSpace(args.text) || undefined,
+        scopeRef,
+        limit: Math.min(Math.max(Number(args.limit) || 5, 1), 10),
+      },
+      candidates,
     },
   };
 }
@@ -913,7 +1032,7 @@ export async function waitForAria(
       error: `ref "${args.ref}" 格式无效，请使用完整 ref，例如 aria_1`,
     };
   }
-  const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || 5000, 200), 15000);
+  const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || 8000, 200), 30000);
   const startedAt = now();
   let stableSince = 0;
   let lastFingerprint = '';

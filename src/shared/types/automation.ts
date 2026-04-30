@@ -2,6 +2,7 @@ export type ToolName =
   | 'getPageInfo'
   | 'getVisibleText'
   | 'readAriaTree'
+  | 'findAriaNodes'
   | 'resolveAriaRef'
   | 'ariaInspect'
   | 'ariaInteract'
@@ -118,6 +119,17 @@ export interface AriaTreeResultData {
   warnings?: string[];
 }
 
+export interface FindAriaNodesResultData {
+  query: {
+    name?: string;
+    role?: string;
+    text?: string;
+    scopeRef?: string;
+    limit: number;
+  };
+  candidates: AriaNodeSummary[];
+}
+
 export interface ResolveAriaRefData {
   ref: string;
   found: boolean;
@@ -226,5 +238,4 @@ export interface SelectedScreenshotTarget {
   ownerIframeElementId?: string;
   ownerIframeInfo?: ScreenshotOwnerIframeInfo;
 }
-
 

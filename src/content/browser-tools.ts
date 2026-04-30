@@ -25,7 +25,7 @@ import { isElementVisible, resolveSelector, resolveSelectorAll } from '@/shared/
 import { dispatchSyntheticMouseClick } from '@/shared/utils/synthetic-mouse-click';
 import { createMessage } from '@/shared/utils';
 import { TOOL_ERRORS } from '@/shared/constants';
-import { ariaInspect, ariaInteract, readAriaTree, resolveAriaRef, waitForAria } from './aria-tools';
+import { ariaInspect, ariaInteract, findAriaNodes, readAriaTree, resolveAriaRef, waitForAria } from './aria-tools';
 
 type StoredElement = { el: Element; createdAt: number };
 
@@ -1568,6 +1568,9 @@ async function tool_interact(args: any, signal?: AbortSignal): Promise<ToolResul
   const after = snapshotState();
   result.urlChanged = before.url !== after.url;
   result.domChanged = before.visibleTextHash !== after.visibleTextHash;
+  if (action === 'type' || action === 'selectOption') {
+    result.valuePreview = truncateText(getElementValue(el) || result.valuePreview || '', 120);
+  }
 
   return {
     ok: true,
@@ -1582,7 +1585,7 @@ async function tool_waitFor(args: any, signal?: AbortSignal): Promise<ToolResult
   const selector = typeof args?.selector === 'string' ? args.selector.trim() : '';
   const text = typeof args?.text === 'string' ? args.text.trim() : '';
   const state = (args?.state as WaitForState | undefined) || 'appear';
-  const timeoutMs = Math.min(Math.max(Number(args?.timeoutMs) || 5000, 200), 15000);
+  const timeoutMs = Math.min(Math.max(Number(args?.timeoutMs) || 8000, 200), 30000);
   const selectorType = (args?.selectorType as SelectorType | undefined) || 'css';
 
   if (!selector && !text) {
@@ -1888,6 +1891,8 @@ export async function executeTool(call: ToolCall, signal?: AbortSignal): Promise
         return tool_getVisibleText(signal);
       case 'readAriaTree':
         return readAriaTree(args);
+      case 'findAriaNodes':
+        return findAriaNodes(args);
       case 'resolveAriaRef':
         return resolveAriaRef(String(args.ref || ''));
       case 'ariaInspect':
@@ -1925,5 +1930,4 @@ export async function executeTool(call: ToolCall, signal?: AbortSignal): Promise
     };
   }
 }
-
 

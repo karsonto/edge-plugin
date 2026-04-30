@@ -1,233 +1,215 @@
-智能助手 🚀
+# 智能助手
 
-一个基于 AI 的浏览器插件，帮助你捕获网页内容并与 AI 对话，快速获取洞察。
+一个基于 AI 的 Chrome/Edge 侧边栏插件，用于抓取网页内容、解析常见文档附件，并围绕当前页面进行对话。
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)
-![React](https://img.shields.io/badge/React-18.2-61dafb)
+当前实现基于 `Vite + TypeScript + React + Manifest V3`，支持普通网页内容提取、PDF 页面解析、文件拖拽解析，以及可选的浏览器页面读取工具模式。
 
-## ✨ 功能特性
+## 当前真实功能
 
-- 🔍 **智能内容捕获** - 自动提取网页主要内容，支持选中文本
-- ⚡ **快捷操作** - 可自定义的提示词模板，一键执行（总结、翻译、解释等）
-- 💬 **AI 对话** - 基于页面内容与 AI 进行多轮对话
-- 🎨 **现代化 UI** - 简洁美观的用户界面，流畅的动画效果
-- 🔧 **灵活配置** - 支持 OpenAI、Anthropic、Gemini 等多种 AI 提供商
-- 🔐 **隐私保护** - 本地存储配置，支持域名黑名单
+- 页面内容抓取
+  - 支持普通网页内容提取
+  - 支持选中文本优先
+  - 支持两种抓取策略：`full` 和 `readability`
+  - 支持 PDF 页面在 background 中直接抓取并解析
+- 对话与快捷操作
+  - 支持多轮对话
+  - 支持将当前网页内容拼进本轮提问
+  - 支持可配置快捷操作模板
+- 文件上下文
+  - 支持拖拽解析 `txt`、`pdf`、`docx`、`pptx`
+  - 文件内容会与页面内容一起作为对话上下文
+- AI 接口
+  - 支持 `OpenAI 官方 Chat Completions`
+  - 支持 `OpenAI-compatible / 自定义端点`
+- 浏览器页面读取工具
+  - 侧边栏可开启“页面读取工具”模式
+  - Agent 可通过 content script 读取页面、执行低风险交互、截图
+  - 默认优先走 `ARIA` 工具链，再回退到文本/CSS 工具
+- 品牌参数化
+  - 构建时可通过环境变量替换扩展名称、描述和默认端点
 
-## 🚀 快速开始
+## 当前未完全落地或需要注意的点
 
-### 安装
+- 设置面板中存在 `自动捕获页面内容`、`显示悬浮按钮`、`排除域名` 配置项
+  但当前代码里并未全部完整接入运行时行为。
+- 文档和代码里提到的 AI 能力应以当前实现为准：
+  目前仅支持 `openai` 和 `custom(OpenAI-compatible)` 两种 provider。
+- 对话主链路当前运行在 sidepanel 内的 agent，不是 README 旧版本描述的“全部由 background 直接发起 AI 对话”。
 
-#### 方式一：从源码构建
+## 技术栈
+
+- 浏览器平台：Chrome / Edge `Manifest V3`
+- 开发语言：TypeScript
+- UI：React 18
+- 构建：Vite + CRXJS
+- 样式：Tailwind CSS
+- 状态管理：Zustand
+- 文件解析：`pdfjs-dist`、`jszip`
+- 页面正文抽取：`@mozilla/readability`
+- Agent：`@mariozechner/pi-agent-core`、`@mariozechner/pi-ai`
+
+## 项目结构
+
+```text
+edage_plugin/
+├── manifest.json
+├── sidepanel.html
+├── src/
+│   ├── background/              # service worker、存储、PDF 抓取、截图、消息路由
+│   ├── content/                 # 页面提取、页面工具执行、截图目标选择
+│   ├── sidepanel/               # React UI、聊天、设置、文件上下文
+│   ├── shared/
+│   │   ├── ai/                  # OpenAI-compatible、上下文压缩、memory
+│   │   ├── types/               # 跨模块类型和消息协议
+│   │   └── utils/               # 消息桥接、文本处理、文件解析等
+│   └── assets/
+├── README.md
+├── DEVELOPMENT.md
+├── QUICK_START.md
+└── PROJECT_CONTEXT.md
+```
+
+## 关键运行链路
+
+### 1. 页面内容抓取
+
+1. sidepanel 通过 `GET_PAGE_CONTEXT` 向 background 请求上下文
+2. background 判断当前页面是否为 PDF
+3. PDF 页面由 background 直接 `fetch + parsePDFBuffer`
+4. 普通网页由 background 转发给 content script
+5. content script 调用 `extractPageContext()` 提取正文、选中文本、元数据
+
+关键文件：
+
+- [src/sidepanel/hooks/usePageContext.ts](/Users/karson/edage_plugin/src/sidepanel/hooks/usePageContext.ts:1)
+- [src/background/message-handler.ts](/Users/karson/edage_plugin/src/background/message-handler.ts:71)
+- [src/content/text-extractor.ts](/Users/karson/edage_plugin/src/content/text-extractor.ts:14)
+
+### 2. 对话与 Agent
+
+1. sidepanel 负责输入、快捷操作、页面上下文和文件上下文拼接
+2. `useChat` 创建并驱动 browser agent
+3. agent 在需要时通过消息协议调用 content script 中的页面工具
+4. tool 执行状态会回显到聊天区
+
+当前默认工具策略：
+
+- 优先使用 `findAriaNodes / ariaInspect / ariaInteract / waitForAria`
+- `readAriaTree` 用于理解整体结构或局部子树
+- `findByText / query / inspectElement / getValue / interact / waitFor / getVisibleText` 作为回退工具
+- 工具失败时会把失败结果继续返回给模型，而不是立即中断整轮自动化
+
+关键文件：
+
+- [src/sidepanel/App.tsx](/Users/karson/edage_plugin/src/sidepanel/App.tsx:19)
+- [src/sidepanel/hooks/useChat.ts](/Users/karson/edage_plugin/src/sidepanel/hooks/useChat.ts:333)
+- [src/sidepanel/agent/browser-agent.ts](/Users/karson/edage_plugin/src/sidepanel/agent/browser-agent.ts:918)
+- [src/content/index.ts](/Users/karson/edage_plugin/src/content/index.ts:71)
+
+### 3. 文件上下文
+
+1. 用户向 sidepanel 拖入文件
+2. `useFileContext` 按类型调用解析器
+3. 解析后的文本内容与网页内容合并后参与对话
+
+关键文件：
+
+- [src/sidepanel/hooks/useFileContext.ts](/Users/karson/edage_plugin/src/sidepanel/hooks/useFileContext.ts:1)
+- [src/shared/utils/file-parser.ts](/Users/karson/edage_plugin/src/shared/utils/file-parser.ts:1)
+
+## 安装与构建
+
+### 从源码构建
 
 ```bash
-# 克隆项目
 git clone https://github.com/karsonto/edge-plugin.git
 cd edge-plugin
-
-# 安装依赖
 npm install
-
-# 构建
 npm run build
 ```
 
-### 🏷️ 品牌参数化（打包前替换品牌名/描述）
+构建产物在 `dist/`。
 
-本项目支持在 **构建（build）阶段** 通过环境变量注入品牌信息，用于生成扩展的：
-- 扩展名称（`manifest.name`）
-- 扩展描述（`manifest.description`）
-- 扩展按钮提示（`action.default_title`）
-- 快捷键命令描述（`commands.*.description`）
-- Side Panel 标题（运行时 `document.title`）
+### 加载到浏览器
 
-#### 可用环境变量
+1. 打开 `chrome://extensions/`
+2. 启用“开发者模式”
+3. 点击“加载已解压的扩展程序”
+4. 选择项目中的 `dist/` 目录
 
-- `VITE_APP_NAME`：品牌/产品名称（默认：`智能助手`）
-- `VITE_APP_DESC`：扩展描述（默认：`{VITE_APP_NAME} - 捕获网页内容，与 AI 对话获取洞察`）
-- `VITE_DEFAULT_CUSTOM_ENDPOINT`：自定义提供商（Custom）的**默认端点**（默认：`http://localhost:8080/v1/chat/completions`）
+## 使用方式
 
-仓库提供了 `env.example` 作为示例（按你的 CI/终端环境设置同名变量即可）。
+### 1. 配置 AI
 
-#### Windows PowerShell 示例（推荐）
+在侧边栏“设置”中：
 
-```powershell
-$env:VITE_APP_NAME="你的品牌名"
-$env:VITE_APP_DESC="你的品牌名 - 你的描述文案"
-$env:VITE_DEFAULT_CUSTOM_ENDPOINT="http://your-server:8080/v1/chat/completions"
+- `OpenAI 官方`
+  - 需要填写 API Key
+- `OpenAI-compatible / 自定义端点`
+  - 需要填写兼容的 `/v1/chat/completions` 地址
+  - API Key 可选，若填写则以 `Bearer Token` 发送
+
+### 2. 网页对话
+
+1. 打开任意网页
+2. 点击插件图标或使用快捷键 `Ctrl+Shift+E`
+3. 侧边栏会尝试抓取页面内容
+4. 输入问题或点击快捷操作
+
+### 3. 文件对话
+
+1. 直接将 `txt/pdf/docx/pptx` 文件拖入侧边栏
+2. 文件解析完成后，会出现在文件列表中
+3. 后续提问会自动携带文件内容
+
+### 4. 页面读取工具
+
+聊天页底部可以开启“页面读取工具”：
+
+- 开启后，Agent 可调用页面读取/交互工具
+- 适合需要检查页面结构、读取局部状态、执行低风险交互的场景
+
+当前建议的自动化路径：
+
+1. 优先用 `findAriaNodes` 按 `role/name/text` 查目标
+2. 再用 `ariaInspect` 确认节点状态和可用动作
+3. 用 `ariaInteract` 执行动作
+4. 用 `waitForAria` 或再次 `ariaInspect` 验证结果
+
+## 可用环境变量
+
+- `VITE_APP_NAME`
+  用于覆盖扩展名称，默认值：`智能助手`
+- `VITE_APP_DESC`
+  用于覆盖扩展描述
+- `VITE_DEFAULT_CUSTOM_ENDPOINT`
+  用于覆盖 `custom` provider 的默认端点
+
+示例：
+
+```bash
+VITE_APP_NAME="你的品牌名" \
+VITE_APP_DESC="你的品牌名 - 你的描述" \
+VITE_DEFAULT_CUSTOM_ENDPOINT="http://localhost:8080/v1/chat/completions" \
 npm run build
 ```
 
-> 说明：`manifest.json` 的最终内容由构建配置在打包时动态生成，因此不需要手动改 `dist/manifest.json`。
-> 说明：`VITE_DEFAULT_CUSTOM_ENDPOINT` 只影响“首次初始化/清空扩展存储后的默认值”；用户在设置里保存过的端点不会被覆盖。
-
-#### 方式二：直接下载
-
-从 [Releases](https://github.com/karsonto/edge-plugin/releases) 页面下载最新版本的 `.zip` 文件。
-
-### 在浏览器中加载
-
-1. 打开 Chrome/Edge 浏览器
-2. 访问 `chrome://extensions/`
-3. 启用右上角的"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择构建生成的 `dist` 文件夹（或解压后的文件夹）
-
-## 📖 使用说明
-
-### 1. 配置 API Key
-
-首次使用需要配置 AI 提供商的 API Key：
-
-1. 点击浏览器工具栏的「智能助手」图标
-2. 切换到"设置"标签
-3. 选择 AI 提供商（默认 OpenAI）
-4. 输入您的 API Key
-5. 选择模型（推荐 GPT-4 Turbo）
-
-### 2. 浏览网页并对话
-
-1. 访问任意网页
-2. 点击「智能助手」图标打开侧边栏
-3. 插件会自动提取页面内容
-4. 使用快捷操作或直接输入问题
-5. AI 会基于页面内容回答您的问题
-
-### 3. 自定义快捷操作
-
-在设置中可以添加和编辑快捷操作：
-
-1. 切换到"设置"标签
-2. 滚动到"快捷操作配置"
-3. 点击"添加新的快捷操作"
-4. 设置图标、名称和提示词模板
-5. 使用 `{context}` 作为页面内容的占位符
-
-**示例提示词：**
-```
-请用 3-5 个要点总结以下内容：
-
-{context}
-```
-
-## 🛠️ 技术栈
-
-- **浏览器平台**: Chrome/Edge (Manifest V3)
-- **开发语言**: TypeScript
-- **UI 框架**: React 18 + Hooks
-- **构建工具**: Vite + CRXJS
-- **样式方案**: Tailwind CSS
-- **状态管理**: Zustand
-- **AI 集成**: OpenAI API
-- **图标库**: Lucide React
-
-## 📁 项目结构
-
-```
-edage_plugin/
-├── manifest.json              # 插件配置
-├── src/
-│   ├── background/           # 后台服务
-│   │   ├── index.ts
-│   │   ├── ai-service.ts    # AI API 集成
-│   │   └── storage-manager.ts
-│   ├── content/              # 内容脚本
-│   │   ├── index.ts
-│   │   └── text-extractor.ts
-│   ├── sidepanel/            # React UI
-│   │   ├── App.tsx
-│   │   ├── components/
-│   │   └── hooks/
-│   └── shared/               # 共享代码
-│       ├── types/
-│       └── utils/
-├── package.json
-└── README.md
-```
-
-## 🎯 核心功能
-
-### 智能文本提取
-
-- 自动识别网页主要内容
-- 支持用户选中文本
-- 智能过滤广告和导航元素
-- 提取页面元数据（标题、作者、发布时间）
-
-### AI 对话
-
-- 流式响应，逐字显示
-- 支持多轮对话
-- 自动附加页面上下文
-- 错误处理和重试
-
-### 快捷操作
-
-- 预设常用操作（总结、翻译、解释、提取要点）
-- 完全可自定义
-- 支持提示词模板
-- 一键执行
-
-## ⚙️ 开发
-
-### 开发模式
+## 开发命令
 
 ```bash
 npm run dev
-```
-
-这会启动 Vite 开发服务器，支持热更新。
-
-### 构建生产版本
-
-```bash
 npm run build
-```
-
-生成的文件在 `dist` 目录。
-
-### 类型检查
-
-```bash
 npm run type-check
 ```
 
-## 🔐 隐私与安全
+## 推荐阅读顺序
 
-- **本地存储**: API Key 和配置存储在本地，不上传到任何服务器
-- **域名黑名单**: 支持设置不捕获内容的域名列表
-- **数据加密**: 使用浏览器原生加密存储
-- **最小权限**: 只请求必需的浏览器权限
+如果你是开发者或 AI 助手，先读这些文件：
 
-## 🤝 贡献
+1. [PROJECT_CONTEXT.md](/Users/karson/edage_plugin/PROJECT_CONTEXT.md:1)
+2. [DEVELOPMENT.md](/Users/karson/edage_plugin/DEVELOPMENT.md:1)
+3. [CUSTOM_API_SETUP.md](/Users/karson/edage_plugin/CUSTOM_API_SETUP.md:1)
 
-欢迎提交 Issue 和 Pull Request！
+## 许可证
 
-1. Fork 本项目
-2. 创建您的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交您的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启一个 Pull Request
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
-
-## 🙏 致谢
-
-- [React](https://reactjs.org/)
-- [Vite](https://vitejs.dev/)
-- [CRXJS](https://crxjs.dev/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [Zustand](https://github.com/pmndrs/zustand)
-- [Lucide Icons](https://lucide.dev/)
-
-## 📮 联系方式
-
-- 维护者：[@karsonto](https://github.com/karsonto)
-- 项目链接: [https://github.com/karsonto/edge-plugin](https://github.com/karsonto/edge-plugin)
-
----
-
-⭐ 如果这个项目对您有帮助，请给个 Star！
+MIT

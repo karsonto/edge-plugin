@@ -1,138 +1,95 @@
-# 🚀 智能助手 插件快速开始指南
+# 快速开始
 
-## ✅ 构建完成
+这份文档面向首次运行当前仓库，内容只覆盖已经存在的实现。
 
-项目已成功构建！构建输出在 `dist/` 目录。
-
-## 📦 安装到浏览器
-
-### 1. 加载插件
-
-1. 打开 Chrome/Edge 浏览器
-2. 访问 `chrome://extensions/`
-3. 启用右上角的 **"开发者模式"**
-4. 点击 **"加载已解压的扩展程序"**
-5. 选择项目中的 `dist` 文件夹
-
-### 2. 配置自定义 API
-
-1. 点击浏览器工具栏的「智能助手」图标（或使用快捷键 `Ctrl+Shift+E`）
-2. 切换到 **"设置"** 标签
-3. 配置如下：
-
-```
-AI 提供商: 自定义
-API Key: （留空，如果不需要认证）
-模型选择: Qwen3
-自定义端点: http://localhost:8080/v1/chat/completions
-```
-
-4. 展开 **"高级设置"**：
-
-```
-Temperature: 0.5
-Max Tokens: 1024
-Top P: 0.8
-Repetition Penalty: 1.05
-```
-
-5. 配置完成后，关闭设置
-
-### 3. 开始使用
-
-1. 访问任意网页（例如新闻文章、博客等）
-2. 点击「智能助手」图标打开侧边栏
-3. 插件会自动提取页面内容
-4. 使用快捷操作或直接输入问题
-5. AI 会基于页面内容回答
-
-## 🎯 快捷操作示例
-
-默认提供 4 个快捷操作：
-- 📝 **总结文章** - 用 3-5 个要点总结内容
-- 🌐 **翻译成英文** - 将内容翻译成英文
-- 💡 **解释概念** - 解释专业术语和关键概念
-- ❓ **提取要点** - 提取关键问题和要点
-
-你可以在设置中自定义这些操作！
-
-## ⚠️ 注意事项
-
-### 图标缺失
-
-当前构建为了快速测试，暂时移除了图标引用。如需添加图标：
-
-1. 创建 PNG 图标（16x16, 48x48, 128x128）
-2. 放置在 `src/assets/icons/` 目录
-3. 取消注释 `manifest.json` 中的图标引用
-4. 重新构建
-
-详见：[src/assets/icons/README.md](src/assets/icons/README.md)
-
-### API 端点访问
-确保你的网络可以访问你配置的自定义端点（例如本机：`http://localhost:8080`）。
-
-## 🔧 开发模式
-
-如需继续开发：
+## 1. 安装依赖
 
 ```bash
-# 安装依赖（如果还没安装）
 npm install
+```
 
-# 开发模式（支持热更新）
-npm run dev
+## 2. 构建
 
-# 类型检查
-npm run type-check
-
-# 生产构建
+```bash
 npm run build
 ```
 
-## 🐛 调试
+构建完成后，产物位于 `dist/`。
 
-### 查看日志
+## 3. 加载到 Chrome / Edge
 
-**Background Service Worker 日志：**
-1. 访问 `chrome://extensions/`
-2. 找到「智能助手」插件
-3. 点击 "Service Worker" 查看日志
+1. 打开 `chrome://extensions/`
+2. 启用“开发者模式”
+3. 点击“加载已解压的扩展程序”
+4. 选择项目根目录下的 `dist/`
 
-**Content Script 日志：**
-- 在网页中打开开发者工具（F12）
-- 查看 Console 标签
+## 4. 基础配置
 
-**Side Panel 日志：**
-- 右键点击侧边栏
-- 选择 "检查"
+打开侧边栏的“设置”页，选择一种 AI 接入方式。
 
-### 常见问题
+### 方案 A：OpenAI 官方
 
-**Q: 无法连接到 API**
-- 检查自定义端点是否正确
-- 查看 Background Worker 日志中的错误信息
-- 确认网络可以访问该端点
+- 服务类型：`OpenAI 官方`
+- API Key：填写有效的 OpenAI Key
+- 模型：从下拉中选择
 
-**Q: 页面内容提取失败**
-- 刷新页面重试
-- 检查页面是否为特殊页面（PDF、本地文件等）
-- 查看 Content Script 日志
+### 方案 B：OpenAI-compatible / 自定义端点
 
-**Q: 快捷操作不工作**
-- 确认已配置自定义端点
-- 检查提示词模板是否正确
-- 确保使用了 `{context}` 占位符
+- 服务类型：`OpenAI-compatible / 自定义端点`
+- API Key：可选
+- 模型：填写或选择模型名，例如 `qwen3`
+- 兼容端点：例如 `http://localhost:8080/v1/chat/completions`
 
-## 📚 更多文档
+更多说明见 [CUSTOM_API_SETUP.md](/Users/karson/edage_plugin/CUSTOM_API_SETUP.md:1)。
 
-- **完整文档**: [README.md](README.md)
-- **开发指南**: [DEVELOPMENT.md](DEVELOPMENT.md)
-- **自定义 API 配置**: [CUSTOM_API_SETUP.md](CUSTOM_API_SETUP.md)
-- **图标说明**: [src/assets/icons/README.md](src/assets/icons/README.md)
+## 5. 开始使用
 
-## 🎉 开始体验
+### 网页对话
 
-现在就去加载插件，开始使用吧！
+1. 打开任意网页
+2. 点击扩展图标，或使用快捷键 `Ctrl+Shift+E`
+3. 侧边栏会尝试抓取当前页面内容
+4. 直接输入问题或点击快捷操作
 
-如有问题，请查看文档或提交 Issue。
+### 文件对话
+
+可以直接把这些文件拖到侧边栏中：
+
+- `txt`
+- `pdf`
+- `docx`
+- `pptx`
+
+解析完成后，文件内容会自动并入后续对话上下文。
+
+### 页面读取工具
+
+聊天页底部有“页面读取工具”开关：
+
+- 关闭时：按普通页面问答模式工作
+- 开启时：Agent 可以读取页面结构、执行低风险交互、截图
+
+## 6. 常用命令
+
+```bash
+npm run dev
+npm run build
+npm run type-check
+```
+
+## 7. 调试
+
+- Side Panel：
+  在侧边栏界面右键，选择“检查”
+- Background：
+  到 `chrome://extensions/` 打开当前扩展的 Service Worker 控制台
+- Content Script：
+  在目标网页打开 DevTools，看 Console
+
+## 8. 先读哪些文档
+
+如果你是开发者，建议先读：
+
+1. [PROJECT_CONTEXT.md](/Users/karson/edage_plugin/PROJECT_CONTEXT.md:1)
+2. [DEVELOPMENT.md](/Users/karson/edage_plugin/DEVELOPMENT.md:1)
+3. [README.md](/Users/karson/edage_plugin/README.md:1)

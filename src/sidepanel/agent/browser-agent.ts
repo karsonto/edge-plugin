@@ -19,6 +19,7 @@ import type {
   AIConfig,
   ChatMessage,
   ElementSummary,
+  FindAriaNodesResultData,
   InspectElementData,
   InteractResultData,
   SelectedScreenshotTarget,
@@ -50,15 +51,15 @@ const BASE_AGENT_SYSTEM_PROMPT = `你是网页智能助手。
 
 const BROWSER_TOOL_SYSTEM_PROMPT = `当前已启用浏览器页面工具。你可以读取页面并完成低风险网页操作。
 规则：
-1. 默认先读取 ARIA 语义树，再操作
-2. 优先使用 readAriaTree 获取 ref，再使用 ariaInspect / ariaInteract / waitForAria
-3. 对常见表单字段，优先通过 aria ref 定位；只有 ref 不足时再退回 findByText/query
-4. 动作后必须验证结果，优先使用 ariaInspect、waitForAria 或局部 readAriaTree(ref)
+1. 默认优先使用 ARIA 工具链：readAriaTree / findAriaNodes / ariaInspect / ariaInteract / waitForAria
+2. 不要先猜 CSS 选择器；只有 ARIA 工具不足时才退回旧工具
+3. 查找节点时，优先使用 findAriaNodes；只有需要整体理解布局时才使用 readAriaTree
+4. 动作后必须验证结果，优先使用 ariaInspect、waitForAria 或再次读取局部节点
 5. 当需要视觉确认布局、图表、颜色、截图证据，或遇到跨域 iframe 时，使用 screenshotPage
-6. 旧的 findByText/query/getValue/inspectElement/interact/waitFor 是回退工具，不是主路径
+6. 旧的 findByText/query/getValue/inspectElement/interact/waitFor/getVisibleText 是回退工具，不是主路径
 7. 一次只执行一个动作工具
 8. 不要重复读取整页，优先做局部子树检查
-9. 连续失败或无法确认页面状态时，停止并请求用户澄清
+9. 如果工具返回 failed/not found/timeout，不要立刻重复同一个调用；先换一种定位或验证方式
 10. 完成任务后，用简洁自然语言汇报结果`;
 
 function buildAgentSystemPrompt(enableTools: boolean) {
@@ -413,6 +414,10 @@ function summarizeToolResult(result: ToolResult): string {
       const data = result.data as AriaTreeResultData | undefined;
       return `readAriaTree: nodes=${data?.nodeCount || 0} refs=${data?.refCount || 0} filter=${data?.filter || 'all'} sparse=${data?.sparse ? 'yes' : 'no'}${data?.warnings?.length ? ` warning=${truncateText(data.warnings.join('; '), 120)}` : ''}`;
     }
+    case 'findAriaNodes': {
+      const data = result.data as FindAriaNodesResultData | undefined;
+      return `findAriaNodes: found ${data?.candidates?.length || 0} candidate(s)`;
+    }
     case 'resolveAriaRef': {
       const data = result.data as ResolveAriaRefData | undefined;
       return `resolveAriaRef: ${data?.ref || 'unknown'} found=${data?.found ? 'yes' : 'no'}${data?.node ? ` -> ${data.node.role} ${truncateText(data.node.name || data.node.text || '', 60)}` : ''}`;
@@ -466,6 +471,101 @@ function summarizeToolResult(result: ToolResult): string {
   }
 }
 
+function formatStructuredToolDetails(result: ToolResult): string | null {
+  const data = result.data as any;
+
+  if (!result.ok) {
+    return JSON.stringify(
+      {
+        tool: result.tool,
+        ok: false,
+        error: result.error || 'unknown error',
+        observations: result.observations,
+      },
+      null,
+      2
+    );
+  }
+
+  switch (result.tool) {
+    case 'findAriaNodes':
+      return JSON.stringify(
+        {
+          query: data?.query,
+          candidates: (data?.candidates || []).slice(0, 5).map((node: any) => ({
+            ref: node.ref,
+            role: node.role,
+            name: node.name,
+            text: node.text,
+            path: node.path,
+            states: node.states,
+          })),
+        },
+        null,
+        2
+      );
+    case 'ariaInspect':
+      return JSON.stringify(
+        {
+          node: data?.node,
+          nearbyText: data?.nearbyText,
+          availableActions: data?.availableActions,
+        },
+        null,
+        2
+      );
+    case 'ariaInteract':
+    case 'interact':
+      return JSON.stringify(data || {}, null, 2);
+    case 'waitForAria':
+    case 'waitFor':
+      return JSON.stringify(data || {}, null, 2);
+    case 'query':
+    case 'findByText':
+      return JSON.stringify(
+        {
+          elements: (data?.elements || []).slice(0, 5),
+        },
+        null,
+        2
+      );
+    case 'inspectElement':
+    case 'getValue':
+      return JSON.stringify(data || {}, null, 2);
+    case 'readAriaTree':
+      return JSON.stringify(
+        {
+          nodeCount: data?.nodeCount,
+          refCount: data?.refCount,
+          sparse: data?.sparse,
+          fallbackSuggested: data?.fallbackSuggested,
+          rootRef: data?.rootRef,
+          activeRef: data?.activeRef,
+          warnings: data?.warnings,
+          frames: data?.frames,
+        },
+        null,
+        2
+      );
+    case 'screenshotPage':
+      return JSON.stringify(
+        {
+          mode: data?.mode,
+          targetType: data?.targetType,
+          width: data?.width,
+          height: data?.height,
+          tileCount: data?.tileCount,
+          warning: data?.warning,
+          targetInfo: data?.targetInfo,
+        },
+        null,
+        2
+      );
+    default:
+      return data ? JSON.stringify(data, null, 2) : null;
+  }
+}
+
 function sanitizeToolResult(result: ToolResult): ToolResult {
   if (result.tool !== 'screenshotPage' || !result.ok) {
     return result;
@@ -503,17 +603,19 @@ function modelSupportsImageInput(model: Model<any>) {
 }
 
 async function executeBrowserTool(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
-  const result = await executeToolInContent(call, signal);
-  if (!result.ok) {
-    throw new Error(result.error || `工具执行失败: ${call.tool}`);
-  }
-  return result;
+  return executeToolInContent(call, signal);
 }
 
 function buildToolContent(result: ToolResult, multimodal?: boolean) {
   if (multimodal && result.ok) {
+    const details = formatStructuredToolDetails(result);
     return [
-      { type: 'text' as const, text: summarizeToolResult(result) },
+      {
+        type: 'text' as const,
+        text: details
+          ? `${summarizeToolResult(result)}\n\nStructured details:\n${details}`
+          : summarizeToolResult(result),
+      },
       toImageContent(result.data as ScreenshotResultData),
     ];
   }
@@ -529,10 +631,17 @@ function buildToolContent(result: ToolResult, multimodal?: boolean) {
       'Use the full ref value exactly as shown, for example `aria_1`.',
       'Do not shorten, renumber, or strip the `aria_` prefix.',
     ].join('\n');
-    return [{ type: 'text' as const, text: `${summary}\n\n${hints}` }];
+    const details = formatStructuredToolDetails(result);
+    return [{ type: 'text' as const, text: `${summary}\n\n${hints}${details ? `\n\nStructured details:\n${details}` : ''}` }];
   }
 
-  return [{ type: 'text' as const, text: summarizeToolResult(result) }];
+  const details = formatStructuredToolDetails(result);
+  return [{
+    type: 'text' as const,
+    text: details
+      ? `${summarizeToolResult(result)}\n\nStructured details:\n${details}`
+      : summarizeToolResult(result),
+  }];
 }
 
 function createTool(
@@ -574,7 +683,7 @@ function createBrowserAgentTools(
   allowScreenshots: boolean,
   getSelectedScreenshotTarget?: () => SelectedScreenshotTarget | null
 ): AgentTool[] {
-  return [
+  const primaryTools: AgentTool[] = [
     createTool('getPageInfo', 'Get Page Info', '获取当前页面的 URL 和标题', Type.Object({})),
     createTool(
       'readAriaTree',
@@ -583,6 +692,18 @@ function createBrowserAgentTools(
       Type.Object({
         depth: Type.Optional(Type.Number()),
         ref: Type.Optional(Type.String()),
+      })
+    ),
+    createTool(
+      'findAriaNodes',
+      'Find Aria Nodes',
+      '按 role、name、text 在当前页面或指定 scopeRef 下检索语义节点候选，返回可直接使用的 ref',
+      Type.Object({
+        name: Type.Optional(Type.String()),
+        role: Type.Optional(Type.String()),
+        text: Type.Optional(Type.String()),
+        scopeRef: Type.Optional(Type.String()),
+        limit: Type.Optional(Type.Number()),
       })
     ),
     createTool(
@@ -634,6 +755,9 @@ function createBrowserAgentTools(
         timeoutMs: Type.Optional(Type.Number()),
       })
     ),
+  ];
+
+  const fallbackTools: AgentTool[] = [
     createTool(
       'query',
       'Query Elements',
@@ -722,6 +846,15 @@ function createBrowserAgentTools(
         timeoutMs: Type.Optional(Type.Number()),
       })
     ),
+    createTool(
+      'getVisibleText',
+      'Get Visible Text',
+      '读取当前页面可见文本，适合作为 ARIA 路线失败时的只读回退',
+      Type.Object({})
+    ),
+  ];
+
+  const screenshotTools: AgentTool[] = [
     ...(allowScreenshots
       ? [
           createTool(
@@ -750,6 +883,8 @@ function createBrowserAgentTools(
         ]
       : []),
   ];
+
+  return [...primaryTools, ...fallbackTools, ...screenshotTools];
 }
 
 export function getBrowserAgentConfigKey(config: AIConfig) {
