@@ -119,6 +119,12 @@
 4. `waitForAria` 或再次 `ariaInspect`
    验证结果
 
+当前建议优先等待的状态变化：
+
+- 输入框：`valueChanged`
+- 选择器：`selectedChanged`
+- 展开/折叠控件：`expandedChanged`
+
 `readAriaTree` 仍然保留，但现在更适合这两类场景：
 
 - 需要整体理解页面结构
@@ -233,6 +239,8 @@ Sidepanel
 - 工具结果改为“摘要 + 结构化明细”一起喂给模型
 - 工具失败时不再一律抛异常中断，而是把失败结果回传给模型继续决策
 - 等待超时上限从 15 秒放宽到 30 秒
+- `ariaInteract` 现在回传前后节点摘要和变化字段
+- 自定义 `combobox/listbox` 已开始支持通过 `selectOption` 处理关联弹层
 
 如果后续继续优化浏览器自动化，优先看：
 

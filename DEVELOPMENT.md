@@ -196,6 +196,9 @@
 - 工具执行失败时，失败结果会继续返回给模型，供其切换策略
 - 工具结果会带更结构化的明细，模型不再只看到一句摘要
 - `waitFor` / `waitForAria` 的超时上限提升到 30 秒
+- `waitForAria` 现在支持 `valueChanged / selectedChanged / expandedChanged`
+- `ariaInteract` 会返回交互前后节点摘要和发生变化的字段
+- `selectOption` 已开始兼容自定义 `combobox/listbox` 弹层选项
 
 ## 已存在但未完全接线的配置
 

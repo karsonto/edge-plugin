@@ -21,7 +21,13 @@ export type InteractAction = 'click' | 'type' | 'press' | 'selectOption';
 export type AriaCheckedState = boolean | 'mixed';
 export type AriaPressedState = boolean | 'mixed';
 
-export type WaitForState = 'appear' | 'disappear' | 'stable';
+export type WaitForState =
+  | 'appear'
+  | 'disappear'
+  | 'stable'
+  | 'valueChanged'
+  | 'expandedChanged'
+  | 'selectedChanged';
 
 export type ScreenshotMode = 'viewport' | 'fullpage';
 export type ScreenshotTargetType = 'page' | 'iframe' | 'container';
@@ -156,6 +162,9 @@ export interface AriaInteractResultData {
   domChanged?: boolean;
   treeChanged?: boolean;
   reloadSuggested?: boolean;
+  beforeNode?: AriaNodeSummary;
+  afterNode?: AriaNodeSummary;
+  changedFields?: string[];
 }
 
 export interface WaitForAriaResultData {
@@ -238,4 +247,3 @@ export interface SelectedScreenshotTarget {
   ownerIframeElementId?: string;
   ownerIframeInfo?: ScreenshotOwnerIframeInfo;
 }
-

@@ -176,6 +176,18 @@ npm run build
 3. 用 `ariaInteract` 执行动作
 4. 用 `waitForAria` 或再次 `ariaInspect` 验证结果
 
+当前推荐的验证方式：
+
+- 输入框：优先等 `valueChanged`
+- 下拉/选项：优先等 `selectedChanged`
+- 折叠面板、弹层、展开按钮：优先等 `expandedChanged`
+- 如果动作后状态仍不明确，再补一次 `ariaInspect`
+
+复杂控件说明：
+
+- 对自定义 `combobox/listbox`，当前 `selectOption` 已支持尝试定位关联弹层并点击选项
+- 若页面语义不规范，仍可能需要回退到 `findByText / interact / screenshotPage`
+
 ## 可用环境变量
 
 - `VITE_APP_NAME`

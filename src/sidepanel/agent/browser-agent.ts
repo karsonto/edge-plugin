@@ -55,12 +55,14 @@ const BROWSER_TOOL_SYSTEM_PROMPT = `当前已启用浏览器页面工具。你�
 2. 不要先猜 CSS 选择器；只有 ARIA 工具不足时才退回旧工具
 3. 查找节点时，优先使用 findAriaNodes；只有需要整体理解布局时才使用 readAriaTree
 4. 动作后必须验证结果，优先使用 ariaInspect、waitForAria 或再次读取局部节点
-5. 当需要视觉确认布局、图表、颜色、截图证据，或遇到跨域 iframe 时，使用 screenshotPage
-6. 旧的 findByText/query/getValue/inspectElement/interact/waitFor/getVisibleText 是回退工具，不是主路径
-7. 一次只执行一个动作工具
-8. 不要重复读取整页，优先做局部子树检查
-9. 如果工具返回 failed/not found/timeout，不要立刻重复同一个调用；先换一种定位或验证方式
-10. 完成任务后，用简洁自然语言汇报结果`;
+5. 对输入框、下拉、折叠面板，优先等待明确状态变化：valueChanged、selectedChanged、expandedChanged
+6. 对自定义下拉或 combobox，先定位 combobox，再使用 selectOption，并验证 selectedChanged 或值变化
+7. 当需要视觉确认布局、图表、颜色、截图证据，或遇到跨域 iframe 时，使用 screenshotPage
+8. 旧的 findByText/query/getValue/inspectElement/interact/waitFor/getVisibleText 是回退工具，不是主路径
+9. 一次只执行一个动作工具
+10. 不要重复读取整页，优先做局部子树检查
+11. 如果工具返回 failed/not found/timeout，不要立刻重复同一个调用；先换一种定位或验证方式
+12. 完成任务后，用简洁自然语言汇报结果`;
 
 function buildAgentSystemPrompt(enableTools: boolean) {
   return enableTools
@@ -744,13 +746,20 @@ function createBrowserAgentTools(
     createTool(
       'waitForAria',
       'Wait For Aria',
-      '等待指定 ref 或 aria 条件出现、消失或稳定',
+      '等待指定 ref 或 aria 条件出现、消失、稳定，或等待 value/expanded/selected 状态变化',
       Type.Object({
         ref: Type.Optional(Type.String()),
         name: Type.Optional(Type.String()),
         role: Type.Optional(Type.String()),
         state: Type.Optional(
-          Type.Union([Type.Literal('appear'), Type.Literal('disappear'), Type.Literal('stable')])
+          Type.Union([
+            Type.Literal('appear'),
+            Type.Literal('disappear'),
+            Type.Literal('stable'),
+            Type.Literal('valueChanged'),
+            Type.Literal('expandedChanged'),
+            Type.Literal('selectedChanged'),
+          ])
         ),
         timeoutMs: Type.Optional(Type.Number()),
       })

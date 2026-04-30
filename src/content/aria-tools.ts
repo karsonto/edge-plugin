@@ -636,6 +636,19 @@ function scoreAriaNodeMatch(node: AriaNodeSummary, query: AriaQuery) {
     score += 10;
   }
 
+  if (wantedRole === 'textbox' || wantedRole === 'combobox' || wantedRole === 'button') {
+    if (node.name) score += 8;
+    if (node.props?.placeholder) score += 6;
+  }
+
+  if (wantedRole === 'textbox' && node.props?.value) {
+    score += 4;
+  }
+
+  if (wantedRole === 'button' && node.states?.disabled === false) {
+    score += 4;
+  }
+
   if (node.states?.disabled) {
     score -= 10;
   }
@@ -678,6 +691,82 @@ function getAvailableActions(element: Element): InteractAction[] {
     actions.push('press');
   }
   return Array.from(new Set(actions));
+}
+
+function getOwnedElements(element: Element): Element[] {
+  const ownerDocument = element.ownerDocument;
+  const rawIds = [
+    normalizeSpace(element.getAttribute('aria-controls')),
+    normalizeSpace(element.getAttribute('aria-owns')),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return rawIds
+    .map((id) => ownerDocument.getElementById(id))
+    .filter((owned): owned is HTMLElement => Boolean(owned));
+}
+
+function isPopupContainer(element: Element) {
+  const role = inferRole(element);
+  return role === 'listbox' || role === 'dialog' || role === 'menu' || role === 'tree' || role === 'grid';
+}
+
+function findPopupContainer(element: Element): Element | null {
+  const owned = getOwnedElements(element).find((candidate) => isPopupContainer(candidate) && isIncludedInAriaTree(candidate));
+  if (owned) {
+    return owned;
+  }
+
+  const ariaHasPopup = normalizeSpace(element.getAttribute('aria-haspopup'));
+  if (ariaHasPopup && ariaHasPopup !== 'false') {
+    const popup = Array.from(document.querySelectorAll('[role="listbox"], [role="dialog"], [role="menu"]'))
+      .find((candidate) => isIncludedInAriaTree(candidate));
+    if (popup) {
+      return popup;
+    }
+  }
+
+  return null;
+}
+
+function scorePopupOption(option: Element, wantedValue: string, wantedLabel: string) {
+  const optionText = normalizeSpace((option as HTMLElement).innerText || option.textContent).toLowerCase();
+  const optionLabel = normalizeSpace(option.getAttribute('aria-label')).toLowerCase();
+  const haystacks = [optionText, optionLabel].filter(Boolean);
+  const wanted = [wantedLabel, wantedValue].filter(Boolean);
+
+  if (wanted.length === 0) {
+    return -1;
+  }
+
+  let score = -1;
+  for (const expected of wanted) {
+    for (const actual of haystacks) {
+      if (!actual) continue;
+      if (actual === expected) score = Math.max(score, 120);
+      else if (actual.startsWith(expected)) score = Math.max(score, 95);
+      else if (actual.includes(expected)) score = Math.max(score, 75);
+    }
+  }
+
+  return score;
+}
+
+function findPopupOption(container: Element, args: { value?: string; label?: string }) {
+  const wantedValue = normalizeSpace(args.value).toLowerCase();
+  const wantedLabel = normalizeSpace(args.label).toLowerCase();
+  const options = Array.from(container.querySelectorAll('[role="option"], [role="menuitem"], button, li'))
+    .filter((option) => isIncludedInAriaTree(option));
+
+  const scored = options
+    .map((option) => ({ option, score: scorePopupOption(option, wantedValue, wantedLabel) }))
+    .filter((entry) => entry.score >= 0)
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.option || null;
 }
 
 function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
@@ -945,6 +1034,7 @@ export async function ariaInteract(
     ref,
     target,
     success: true,
+    beforeNode: target,
   };
 
   try {
@@ -986,16 +1076,41 @@ export async function ariaInteract(
         break;
       }
       case 'selectOption': {
-        if (!(element instanceof HTMLSelectElement)) {
-          throw new Error('目标节点不是下拉框');
+        if (element instanceof HTMLSelectElement) {
+          const option = Array.from(element.options).find((item) => (args.value ? item.value === args.value : args.label ? item.label.trim() === args.label.trim() : false));
+          if (!option) throw new Error('未找到匹配的下拉选项');
+          element.value = option.value;
+          dispatchInputEvents(element);
+          result.selectedValue = option.value;
+          result.selectedLabel = option.label;
+          result.valuePreview = truncateText(option.label || option.value, 120);
+          break;
         }
-        const option = Array.from(element.options).find((item) => (args.value ? item.value === args.value : args.label ? item.label.trim() === args.label.trim() : false));
-        if (!option) throw new Error('未找到匹配的下拉选项');
-        element.value = option.value;
-        dispatchInputEvents(element);
-        result.selectedValue = option.value;
-        result.selectedLabel = option.label;
-        result.valuePreview = truncateText(option.label || option.value, 120);
+
+        const role = inferRole(element);
+        if (role !== 'combobox' && role !== 'listbox') {
+          throw new Error('目标节点不是可选择控件');
+        }
+
+        const popup = findPopupContainer(element);
+        if (!popup) {
+          throw new Error('未找到关联的选项面板，请先展开下拉后重试');
+        }
+
+        const option = findPopupOption(popup, {
+          value: args.value,
+          label: args.label,
+        });
+        if (!option) {
+          throw new Error('在当前选项面板中未找到匹配项');
+        }
+
+        (option as HTMLElement).scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+        await waitForNextPaint(signal);
+        dispatchSyntheticMouseClick(option);
+        result.selectedValue = normalizeSpace(option.getAttribute('data-value')) || undefined;
+        result.selectedLabel = normalizeSpace((option as HTMLElement).innerText || option.textContent) || undefined;
+        result.valuePreview = truncateText(result.selectedLabel || result.selectedValue || '', 120);
         break;
       }
     }
@@ -1008,10 +1123,39 @@ export async function ariaInteract(
   }
 
   const after = snapshotFingerprint();
+  const refreshedElement = getStoredAriaElement(ref);
+  const afterPath = ariaRefStore.get(ref)?.path || ref;
+  const afterNode =
+    refreshedElement
+      ? summarizeNode(refreshedElement, ref, afterPath, ariaRefStore.get(ref)?.frameRef) || undefined
+      : undefined;
   result.urlChanged = before.split('::')[0] !== after.split('::')[0];
   result.domChanged = before !== after;
   result.treeChanged = result.domChanged;
   result.reloadSuggested = result.domChanged;
+  result.afterNode = afterNode;
+  result.changedFields = [];
+
+  if (result.beforeNode?.props?.value !== afterNode?.props?.value) {
+    result.changedFields.push('value');
+  }
+  if (result.beforeNode?.states?.expanded !== afterNode?.states?.expanded) {
+    result.changedFields.push('expanded');
+  }
+  if (result.beforeNode?.states?.selected !== afterNode?.states?.selected) {
+    result.changedFields.push('selected');
+  }
+  if (result.beforeNode?.states?.checked !== afterNode?.states?.checked) {
+    result.changedFields.push('checked');
+  }
+  if (result.beforeNode?.states?.pressed !== afterNode?.states?.pressed) {
+    result.changedFields.push('pressed');
+  }
+
+  if ((action === 'type' || action === 'selectOption') && afterNode?.props?.value) {
+    result.valuePreview = truncateText(afterNode.props.value, 120);
+  }
+
   return {
     ok: true,
     tool: 'ariaInteract',
@@ -1036,6 +1180,10 @@ export async function waitForAria(
   const startedAt = now();
   let stableSince = 0;
   let lastFingerprint = '';
+  let initialTarget = findAriaTarget({ ref: normalizedRef, name: args.name, role: args.role });
+  const initialValue = initialTarget?.props?.value;
+  const initialExpanded = initialTarget?.states?.expanded;
+  const initialSelected = initialTarget?.states?.selected;
 
   while (now() - startedAt < timeoutMs) {
     assertNotAborted(signal);
@@ -1086,6 +1234,46 @@ export async function waitForAria(
         stableSince = now();
       }
     }
+
+    if (state === 'valueChanged' && matched && target?.props?.value !== initialValue) {
+      return {
+        ok: true,
+        tool: 'waitForAria',
+        data: {
+          matched: true,
+          elapsedMs: now() - startedAt,
+          condition: `valueChanged:${target?.ref || args.ref || 'query'}`,
+          matchedRef: target?.ref,
+        },
+      };
+    }
+
+    if (state === 'expandedChanged' && matched && target?.states?.expanded !== initialExpanded) {
+      return {
+        ok: true,
+        tool: 'waitForAria',
+        data: {
+          matched: true,
+          elapsedMs: now() - startedAt,
+          condition: `expandedChanged:${target?.ref || args.ref || 'query'}`,
+          matchedRef: target?.ref,
+        },
+      };
+    }
+
+    if (state === 'selectedChanged' && matched && target?.states?.selected !== initialSelected) {
+      return {
+        ok: true,
+        tool: 'waitForAria',
+        data: {
+          matched: true,
+          elapsedMs: now() - startedAt,
+          condition: `selectedChanged:${target?.ref || args.ref || 'query'}`,
+          matchedRef: target?.ref,
+        },
+      };
+    }
+
     await sleep(200, signal);
   }
 
